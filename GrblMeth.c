@@ -10,7 +10,7 @@ void GrblInit(){
 GRBL_METH GrblMeth;
 
 
-void printInteger(int n){
+void printInteger(int32_t n){
   uint8_t temp[20];
   sprintf(temp,"%d",n);
   GrblMeth.printPgmString(temp);

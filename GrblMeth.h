@@ -10,7 +10,63 @@
 #include <string.h>
 #include <math.h>
 #include <inttypes.h>
+#define BLOCK_BUFFER_SIZE 20 //存放接下来要执行动作的环形队列,20个动作
+// Current global settings (persisted in EEPROM from byte 1 onwards)
+typedef struct {
+  double steps_per_mm[3];
+  uint8_t microsteps;
+  uint8_t pulse_microseconds;
+  double default_feed_rate;
+  double default_seek_rate;
+  uint8_t invert_mask;
+  double mm_per_arc_segment;
+  double acceleration;
+  double max_jerk;
+} settings_t;
 
+typedef struct {
+	uint8_t status_code;
+
+	uint8_t motion_mode;             /* {G0, G1, G2, G3, G80} */
+	uint8_t inverse_feed_rate_mode;  /* G93, G94 */
+	uint8_t inches_mode;             /* 0 = millimeter mode, 1 = inches mode {G20, G21} */
+	uint8_t absolute_mode;           /* 0 = relative motion, 1 = absolute motion {G90, G91} */
+	uint8_t program_flow;
+	int32_t spindle_direction;
+	double feed_rate, seek_rate;     /* Millimeters/second */
+	double position[3];              /* Where the interpreter considers the tool to be at this point in the code */
+	uint8_t tool;
+	int16_t spindle_speed;           /* RPM/100 */
+	uint8_t plane_axis_0; 
+	uint8_t plane_axis_1; 
+	uint8_t plane_axis_2;            // The axes of the selected plane  
+} parser_state_t;
+
+// This struct is used when buffering the setup for each linear movement "nominal" values are as specified in 
+// the source g-code and may never actually be reached if acceleration management is active.
+typedef struct {
+	// Fields used by the bresenham algorithm for tracing the line
+	uint32_t steps_x, steps_y, steps_z; // Step count along each axis
+	uint8_t  direction_bits;            // The direction bit set for this block (refers to *_DIRECTION_BIT in config.h)
+	int32_t  step_event_count;          // The number of step events required to complete this block
+	uint32_t nominal_rate;              // The nominal step rate for this block in step_events/minute
+	
+	// Fields used by the motion planner to manage acceleration
+	double speed_x, speed_y, speed_z;   // Nominal mm/minute for each axis
+	double nominal_speed;               // The nominal speed for this block in mm/min  
+	double millimeters;                 // The total travel of this block in mm
+	double entry_factor;                // The factor representing the change in speed at the start of this trapezoid.
+																			// (The end of the curren speed trapezoid is defined by the entry_factor of the
+																			// next block)
+	
+	// Settings for the trapezoid generator
+	uint32_t initial_rate;              // The jerk-adjusted step rate at start of block  
+	uint32_t final_rate;                // The minimal rate at exit
+	int32_t rate_delta;                 // The steps/minute to add or subtract when changing speed (must be positive)
+	uint32_t accelerate_until;          // The index of the step event on which to stop acceleration
+	uint32_t decelerate_after;          // The index of the step event on which to start decelerating
+	
+} block_t;
 typedef struct GRBL_METH{
 	int8_t (*ReadChar)(void);//从串口得到一个字节的数据,没有数据时候返回-1
 	void (*XAxisPwmL)(void);
@@ -28,6 +84,13 @@ typedef struct GRBL_METH{
 	// 打印日志使用
 	void (*printPgmString)(uint8_t*);
 	void (*printByte)(uint8_t);
+	// 关键参数设置
+	settings_t settings;
+	parser_state_t gc;
+	// 用于存放动作队列
+	block_t block_buffer[BLOCK_BUFFER_SIZE];  // A ring buffer for motion instructions,是一个存放接下来要执行动作的环形队列
+	volatile int32_t block_buffer_head;           // Index of the next block to be pushed
+	volatile int32_t block_buffer_tail;           // Index of the block to process now
 }GRBL_METH;
 
 #include "stepper.h"
@@ -81,7 +144,7 @@ typedef struct GRBL_METH{
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 
 
-void printInteger(int n);
+void printInteger(int32_t n);
 void printFloat(float n);
 
 extern GRBL_METH GrblMeth;

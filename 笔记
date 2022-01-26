@@ -1,0 +1,8 @@
+lround(15.3): 15
+lround(15.5): 16
+lround(15.8): 16
+lround(-15.3): -15
+lround(-15.5): -16
+lround(-15.8): -16
+
+

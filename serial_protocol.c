@@ -1,39 +1,13 @@
-/*
-  serial_protocol.c - the serial protocol master control unit
-  Part of Grbl
-
-  The MIT License (MIT)
-
-  Grbl(tm) - Embedded CNC g-code interpreter and motion-controller
-  Copyright (c) 2009-2011 Simen Svale Skogsrud
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-*/
-
 #include "serial_protocol.h"
 
 #define LINE_BUFFER_SIZE 50
 
-static char line[LINE_BUFFER_SIZE];
+static uint8_t line[LINE_BUFFER_SIZE];
 static uint8_t char_counter;
 
-void status_message(int status_code) {
+static void status_message(int32_t status_code);
+
+static void status_message(int32_t status_code){
   switch(status_code){
     case GCSTATUS_OK:
         GrblMeth.printPgmString("ok\n\r"); break;
@@ -49,9 +23,8 @@ void status_message(int status_code) {
         GrblMeth.printPgmString("error: ");
         printInteger(status_code);
         GrblMeth.printPgmString("\n\r");
-  }
+    }
 }
-
 void sp_init() 
 {
   // beginSerial(BAUD_RATE);  
@@ -61,7 +34,7 @@ void sp_init()
 
 void sp_process()
 {
-  char c;
+  uint8_t c;
   while((c = GrblMeth.ReadChar()) != -1) 
   {
     if((char_counter > 0) && ((c == '\n') || (c == '\r'))) {  // Line is complete. Then execute!

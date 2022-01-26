@@ -28,7 +28,7 @@
 
 #include "settings.h"
 
-settings_t settings;
+// settings_t settings;
 
 // Version 1 outdated settings record
 typedef struct {
@@ -54,25 +54,25 @@ void settings_reset() {
   settings.max_jerk = DEFAULT_MAX_JERK;
 }
 
-void settings_dump() {
-  GrblMeth.printPgmString("$0 = "); printFloat(settings.steps_per_mm[X_AXIS]);
-  GrblMeth.printPgmString(" (steps/mm x)\r\n$1 = "); printFloat(settings.steps_per_mm[Y_AXIS]);
-  GrblMeth.printPgmString(" (steps/mm y)\r\n$2 = "); printFloat(settings.steps_per_mm[Z_AXIS]);
-  GrblMeth.printPgmString(" (steps/mm z)\r\n$3 = "); printInteger(settings.pulse_microseconds);
-  GrblMeth.printPgmString(" (microseconds step pulse)\r\n$4 = "); printFloat(settings.default_feed_rate);
-  GrblMeth.printPgmString(" (mm/min default feed rate)\r\n$5 = "); printFloat(settings.default_seek_rate);
-  GrblMeth.printPgmString(" (mm/min default seek rate)\r\n$6 = "); printFloat(settings.mm_per_arc_segment);
-  GrblMeth.printPgmString(" (mm/arc segment)\r\n$7 = "); printInteger(settings.invert_mask); 
-  GrblMeth.printPgmString(" (step port invert mask. binary = "); //printIntegerInBase(settings.invert_mask, 2);  
-  GrblMeth.printPgmString(")\r\n$8 = "); printFloat(settings.acceleration);
-  GrblMeth.printPgmString(" (acceleration in mm/sec^2)\r\n$9 = "); printFloat(settings.max_jerk);
-  GrblMeth.printPgmString(" (max instant cornering speed change in delta mm/min)");
-  GrblMeth.printPgmString("\r\n'$x=value' to set parameter or just '$' to dump current settings\r\n");
+void settings_dump(GRBL_METH *meth) {
+  meth->printPgmString("$0 = "); printFloat(meth->settings.steps_per_mm[X_AXIS]);
+  meth->printPgmString(" (steps/mm x)\r\n$1 = "); printFloat(meth->settings.steps_per_mm[Y_AXIS]);
+  meth->printPgmString(" (steps/mm y)\r\n$2 = "); printFloat(meth->settings.steps_per_mm[Z_AXIS]);
+  meth->printPgmString(" (steps/mm z)\r\n$3 = "); printInteger(meth->settings.pulse_microseconds);
+  meth->printPgmString(" (microseconds step pulse)\r\n$4 = "); printFloat(meth->settings.default_feed_rate);
+  meth->printPgmString(" (mm/min default feed rate)\r\n$5 = "); printFloat(meth->settings.default_seek_rate);
+  meth->printPgmString(" (mm/min default seek rate)\r\n$6 = "); printFloat(meth->settings.mm_per_arc_segment);
+  meth->printPgmString(" (mm/arc segment)\r\n$7 = "); printInteger(meth->settings.invert_mask); 
+  meth->printPgmString(" (step port invert mask. binary = "); //printIntegerInBase(meth->settings.invert_mask, 2);  
+  meth->printPgmString(")\r\n$8 = "); printFloat(meth->settings.acceleration);
+  meth->printPgmString(" (acceleration in mm/sec^2)\r\n$9 = "); printFloat(meth->settings.max_jerk);
+  meth->printPgmString(" (max instant cornering speed change in delta mm/min)");
+  meth->printPgmString("\r\n'$x=value' to set parameter or just '$' to dump current settings\r\n");
 }
 
 void write_settings() {
   // eeprom_put_char(0, SETTINGS_VERSION);
-  // memcpy_to_eeprom_with_checksum(1, (char*)&settings, sizeof(settings_t));
+  // memcpy_to_eeprom_with_checksum(1, (uint8_t*)&settings, sizeof(settings_t));
 }
 
 int read_settings() {
@@ -81,12 +81,12 @@ int read_settings() {
   
   // if (version == SETTINGS_VERSION) {
   //   // Read settings-record and check checksum
-  //   if (!(memcpy_from_eeprom_with_checksum((char*)&settings, 1, sizeof(settings_t)))) {
+  //   if (!(memcpy_from_eeprom_with_checksum((uint8_t*)&settings, 1, sizeof(settings_t)))) {
   //     return(0);
   //   }
   // } else if (version == 1) {
   //   // Migrate from old settings version
-  //   if (!(memcpy_from_eeprom_with_checksum((char*)&settings, 1, sizeof(settings_v1_t)))) {
+  //   if (!(memcpy_from_eeprom_with_checksum((uint8_t*)&settings, 1, sizeof(settings_v1_t)))) {
   //     return(0);
   //   }
   //   settings.acceleration = DEFAULT_ACCELERATION;
@@ -98,33 +98,48 @@ int read_settings() {
 }
 
 // A helper method to set settings from command line
-void settings_store_setting(int parameter, double value) {
+void settings_store_setting(GRBL_METH *meth,int parameter, double value) {
   switch(parameter) {
-    case 0: case 1: case 2:
-    settings.steps_per_mm[parameter] = value; break;
-    case 3: settings.pulse_microseconds = round(value); break;
-    case 4: settings.default_feed_rate = value; break;
-    case 5: settings.default_seek_rate = value; break;
-    case 6: settings.mm_per_arc_segment = value; break;
-    case 7: settings.invert_mask = trunc(value); break;
-    case 8: settings.acceleration = value; break;
-    case 9: settings.max_jerk = fabs(value); break;
-    default: 
-      GrblMeth.printPgmString("Unknown parameter\r\n");
-      return;
-  }
-  // write_settings();
-  GrblMeth.printPgmString("Stored new setting\r\n");
+		case 0: 
+		case 1: 
+		case 2:
+			meth->settings.steps_per_mm[parameter] = value; break;
+		case 3: 
+			meth->settings.pulse_microseconds = round(value); 
+		break;
+		case 4: 
+			meth->settings.default_feed_rate = value; 
+		break;
+		case 5: 
+			meth->settings.default_seek_rate = value; 
+		break;
+		case 6: 
+			meth->settings.mm_per_arc_segment = value; 
+		break;
+		case 7: 
+			meth->settings.invert_mask = trunc(value); 
+		break;
+		case 8: 
+			meth->settings.acceleration = value; 
+		break;
+		case 9: 
+			meth->settings.max_jerk = fabs(value); 
+		break;
+		default: 
+			GrblMeth.printPgmString("Unknown parameter\r\n");
+		return;
+	}
+	meth->printPgmString("Stored new setting\r\n");
 }
 
 // Initialize the config subsystem
 void settings_init() {
   // if(read_settings()) {
-  //   GrblMeth.printPgmString("'$' to dump current settings\r\n");
+  //   meth->printPgmString("'$' to dump current settings\r\n");
   // } else {
-    GrblMeth.printPgmString("Warning: Failed to read EEPROM settings. Using defaults.\r\n");
-    settings_reset();
-    // write_settings();
-    settings_dump();
+  meth->printPgmString("Warning: Failed to read EEPROM settings. Using defaults.\r\n");
+  settings_reset();
+  // write_settings();
+  settings_dump();
   // }
 }

@@ -31,7 +31,7 @@
 #include "GrblMeth.h"
 
 void spindle_init();
-void spindle_run(int direction, uint32_t rpm);
+void spindle_run(int32_t direction, uint32_t rpm);
 void spindle_stop();
 
 #endif
