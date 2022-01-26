@@ -4,5 +4,5 @@ lround(15.8): 16
 lround(-15.3): -15
 lround(-15.5): -16
 lround(-15.8): -16
-
+C 库函数 long int labs(long int x) 返回 x 的绝对值。
 

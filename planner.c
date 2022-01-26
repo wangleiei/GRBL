@@ -61,11 +61,7 @@
 																																																						
 
 #include "planner.h"
-
-// The current position of the tool in absolute steps
-static int32_t position[3];   
-
-static uint8_t acceleration_manager_enabled;   // Acceleration management active?
+static void calculate_trapezoid_for_block(block_t *block, double entry_factor, double exit_factor);
 
 #define ONE_MINUTE_OF_MICROSECONDS 60000000.0
 
@@ -113,7 +109,7 @@ inline double intersection_distance(double initial_rate, double final_rate, doub
 																			 time -->                                 
 */                                                                              
 
-void calculate_trapezoid_for_block(block_t *block, double entry_factor, double exit_factor) {
+static void calculate_trapezoid_for_block(block_t *block, double entry_factor, double exit_factor) {
 	block->initial_rate = ceil(block->nominal_rate*entry_factor);
 	block->final_rate = ceil(block->nominal_rate*exit_factor);
 	int32_t acceleration_per_minute = block->rate_delta*ACCELERATION_TICKS_PER_SECOND*60.0;
@@ -159,12 +155,12 @@ inline double junction_jerk(block_t *before, block_t *after) {
 
 // Calculate a braking factor to reach baseline speed which is max_jerk/2, e.g. the 
 // speed under which you cannot exceed max_jerk no matter what you do.
-double factor_for_safe_speed(block_t *block) {
-	return(settings.max_jerk/block->nominal_speed);  
+double factor_for_safe_speed(GRBL_METH *meth,block_t *block) {
+	return(meth->settings.max_jerk/block->nominal_speed);  
 }
 
 // The kernel called by planner_recalculate() when scanning the plan from last to first entry.
-void planner_reverse_pass_kernel(block_t *previous, block_t *current, block_t *next) {
+void planner_reverse_pass_kernel(GRBL_METH *meth,block_t *previous, block_t *current, block_t *next) {
 	if(!current) { return; }
 
 	double entry_factor = 1.0;
@@ -172,19 +168,19 @@ void planner_reverse_pass_kernel(block_t *previous, block_t *current, block_t *n
 	if (next) {
 		exit_factor = next->entry_factor;
 	} else {
-		exit_factor = factor_for_safe_speed(current);
+		exit_factor = factor_for_safe_speed(meth,current);
 	}
 	
 	// Calculate the entry_factor for the current block. 
 	if (previous) {
 		// Reduce speed so that junction_jerk is within the maximum allowed
 		double jerk = junction_jerk(previous, current);
-		if (jerk > settings.max_jerk) {
-			entry_factor = (settings.max_jerk/jerk);
+		if (jerk > meth->settings.max_jerk) {
+			entry_factor = (meth->settings.max_jerk/jerk);
 		} 
 		// If the required deceleration across the block is too rapid, reduce the entry_factor accordingly.
 		if (entry_factor > exit_factor) {
-			double max_entry_speed = max_allowable_speed(-settings.acceleration,current->nominal_speed*exit_factor, 
+			double max_entry_speed = max_allowable_speed(-meth->settings.acceleration,current->nominal_speed*exit_factor, 
 				current->millimeters);
 			double max_entry_factor = max_entry_speed/current->nominal_speed;
 			if (max_entry_factor < entry_factor) {
@@ -192,7 +188,7 @@ void planner_reverse_pass_kernel(block_t *previous, block_t *current, block_t *n
 			}
 		}    
 	} else {
-		entry_factor = factor_for_safe_speed(current);
+		entry_factor = factor_for_safe_speed(meth,current);
 	}
 		
 	// Store result
@@ -212,9 +208,9 @@ void planner_reverse_pass(GRBL_METH *meth) {
 		block[2]= block[1];
 		block[1]= block[0];
 		block[0] = &(meth->block_buffer[block_index]);
-		planner_reverse_pass_kernel(block[0], block[1], block[2]);
+		planner_reverse_pass_kernel(meth,block[0], block[1], block[2]);
 	}
-	planner_reverse_pass_kernel(NULL, block[0], block[1]);
+	planner_reverse_pass_kernel(meth,NULL, block[0], block[1]);
 }
 
 // The kernel called by planner_recalculate() when scanning the plan from first to last entry.
@@ -268,10 +264,10 @@ void planner_recalculate_trapezoids() {
 		}
 		block_index = (block_index+1) % BLOCK_BUFFER_SIZE;
 	}
-	calculate_trapezoid_for_block(next, next->entry_factor, factor_for_safe_speed(next));
+	calculate_trapezoid_for_block(next, next->entry_factor, factor_for_safe_speed(meth,next));
 }
 
-// Recalculates the motion plan according to the following algorithm:
+// Recalculates the motion plan according to the following 算法:
 //
 //   1. Go over every block in reverse order and calculate a junction speed reduction (i.e. block_t.entry_factor) 
 //      so that:
@@ -298,18 +294,18 @@ void plan_init() {
 	meth->block_buffer_head = 0;
 	meth->block_buffer_tail = 0;
 	plan_set_acceleration_manager_enabled(1);
-	clear_vector(position);
+	clear_vector(meth->position);
 }
 
 void plan_set_acceleration_manager_enabled(int32_t enabled) {
-	if ((!!acceleration_manager_enabled) != (!!enabled)) {
+	if ((!!meth->acceleration_manager_enabled) != (!!enabled)) {
 		st_synchronize();
-		acceleration_manager_enabled = !!enabled;
+		meth->acceleration_manager_enabled = !!enabled;
 	}
 }
 
 int32_t plan_is_acceleration_manager_enabled() {
-	return(acceleration_manager_enabled);
+	return(meth->acceleration_manager_enabled);
 }
 
 void plan_discard_current_block() {
@@ -333,7 +329,7 @@ block_t *plan_get_current_block() {
 void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_rate, int32_t invert_feed_rate) {
 	// The target position of the tool in absolute steps
 	
-	// Calculate target position in absolute steps
+	// 计算每轴上的步数
 	int32_t target[3] = {0};
 	target[X_AXIS] = lround(x*meth->settings.steps_per_mm[X_AXIS]);
 	target[Y_AXIS] = lround(y*meth->settings.steps_per_mm[Y_AXIS]);
@@ -347,28 +343,28 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	// Prepare to set up new block
 	block_t *block = &block_buffer[meth->block_buffer_head];
 	// Number of steps for each axis
-	block->steps_x = labs(target[X_AXIS]-position[X_AXIS]);
-	block->steps_y = labs(target[Y_AXIS]-position[Y_AXIS]);
-	block->steps_z = labs(target[Z_AXIS]-position[Z_AXIS]);
+	block->steps_x = labs(target[X_AXIS]-meth->position[X_AXIS]);
+	block->steps_y = labs(target[Y_AXIS]-meth->position[Y_AXIS]);
+	block->steps_z = labs(target[Z_AXIS]-meth->position[Z_AXIS]);
 	block->step_event_count = max(block->steps_x, max(block->steps_y, block->steps_z));
 	// Bail if this is a zero-length block
 	if (block->step_event_count == 0) { return; };
 	
-	double delta_x_mm = (target[X_AXIS]-position[X_AXIS])/meth->settings.steps_per_mm[X_AXIS];
-	double delta_y_mm = (target[Y_AXIS]-position[Y_AXIS])/meth->settings.steps_per_mm[Y_AXIS];
-	double delta_z_mm = (target[Z_AXIS]-position[Z_AXIS])/meth->settings.steps_per_mm[Z_AXIS];
+	double delta_x_mm = (target[X_AXIS]-meth->position[X_AXIS])/meth->settings.steps_per_mm[X_AXIS];
+	double delta_y_mm = (target[Y_AXIS]-meth->position[Y_AXIS])/meth->settings.steps_per_mm[Y_AXIS];
+	double delta_z_mm = (target[Z_AXIS]-meth->position[Z_AXIS])/meth->settings.steps_per_mm[Z_AXIS];
 	block->millimeters = sqrt((delta_x_mm*delta_x_mm) + (delta_y_mm*delta_y_mm) + (delta_z_mm*delta_z_mm));
 	
 	
-	uint32_t microseconds;
-	if (!invert_feed_rate) {
+	uint32_t microseconds = 0;
+	if (!invert_feed_rate) {//计算最长完成时间（毫秒）
 		microseconds = lround((block->millimeters/feed_rate)*1000000);
 	} else {
 		microseconds = lround(ONE_MINUTE_OF_MICROSECONDS/feed_rate);
 	}
-	
-	// Calculate speed in mm/minute for each axis
-	double multiplier = 60.0*1000000.0/microseconds;
+
+	// 计算每轴上的速度（mm/minute）
+	double multiplier = 60.0*1000000.0/microseconds;//得到1/分钟
 	block->speed_x = delta_x_mm * multiplier;
 	block->speed_y = delta_y_mm * multiplier;
 	block->speed_z = delta_z_mm * multiplier; 
@@ -376,19 +372,19 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	block->nominal_rate = ceil(block->step_event_count * multiplier);  
 	block->entry_factor = 0.0;
 	
-	// Compute the acceleration rate for the trapezoid generator. Depending on the slope of the line
+	// 为梯形速度模块计算加速度. Depending on the slope of the line
 	// average travel per step event changes. For a line along one axis the travel per step event
 	// is equal to the travel/step in the particular axis. For a 45 degree line the steppers of both
 	// axes might step for every step event. Travel per step event is then sqrt(travel_x^2+travel_y^2).
 	// To generate trapezoids with contant acceleration between blocks the rate_delta must be computed 
 	// specifically for each line to compensate for this phenomenon:
-	double travel_per_step = block->millimeters/block->step_event_count;
+	double travel_per_step = block->millimeters/block->step_event_count;//计算速度(mm/step)
 	block->rate_delta = ceil(
 		((meth->settings.acceleration*60.0)/(ACCELERATION_TICKS_PER_SECOND))/ // acceleration mm/sec/sec per acceleration_tick
-		travel_per_step);                                               // convert to: acceleration steps/min/acceleration_tick    
-	if (acceleration_manager_enabled) {
+		travel_per_step);// convert to: acceleration steps/min/acceleration_tick    
+	if (meth->acceleration_manager_enabled) {
 		// compute a preliminary conservative acceleration trapezoid
-		double safe_speed_factor = factor_for_safe_speed(block);
+		double safe_speed_factor = factor_for_safe_speed(meth,block);//
 		calculate_trapezoid_for_block(block, safe_speed_factor, safe_speed_factor); 
 	} else {
 		block->initial_rate = block->nominal_rate;
@@ -398,21 +394,21 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 		block->rate_delta = 0;
 	}
 	
-	// Compute direction bits for this block
+	// 得到方向
 	block->direction_bits = 0;
-	if (target[X_AXIS] < position[X_AXIS]) {
+	if (target[X_AXIS] < meth->position[X_AXIS]) {
 		block->direction_bits |= (1<<X_DIRECTION_BIT); 
 		meth->XAxisDir_H();
 	}else{
 		meth->XAxisDir_L();
 	}
-	if (target[Y_AXIS] < position[Y_AXIS]) {
+	if (target[Y_AXIS] < meth->position[Y_AXIS]) {
 		block->direction_bits |= (1<<Y_DIRECTION_BIT); 
 		meth->YAxisDir_H();
 	}else{
 		meth->YAxisDir_L();
 	}
-	if (target[Z_AXIS] < position[Z_AXIS]) {
+	if (target[Z_AXIS] < meth->position[Z_AXIS]) {
 		block->direction_bits |= (1<<Z_DIRECTION_BIT); 
 		meth->ZAxisDir_H();
 	}else{
@@ -420,11 +416,11 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	}
 	
 	// Move buffer head
-	meth->block_buffer_head = next_buffer_head;     
+	meth->block_buffer_head = next_buffer_head;    
 	// Update position 
-	memcpy(position, target, sizeof(target)); // position[] = target[]
+	memcpy(meth->position, target, sizeof(target)); // meth->position[] = target[]
 	
-	if (acceleration_manager_enabled) { planner_recalculate(); }  
+	if (meth->acceleration_manager_enabled) { planner_recalculate(); }  
 	st_wake_up();
 }
 

@@ -48,12 +48,12 @@ typedef struct {
 	// Fields used by the bresenham algorithm for tracing the line
 	uint32_t steps_x, steps_y, steps_z; // Step count along each axis
 	uint8_t  direction_bits;            // The direction bit set for this block (refers to *_DIRECTION_BIT in config.h)
-	int32_t  step_event_count;          // The number of step events required to complete this block
+	int32_t  step_event_count;          // 每次移动的步数，以下x，y，z轴中最大步数为准
 	uint32_t nominal_rate;              // The nominal step rate for this block in step_events/minute
 	
 	// Fields used by the motion planner to manage acceleration
 	double speed_x, speed_y, speed_z;   // Nominal mm/minute for each axis
-	double nominal_speed;               // The nominal speed for this block in mm/min  
+	double nominal_speed;               // 该动作区块执行动作时候的额定速度
 	double millimeters;                 // The total travel of this block in mm
 	double entry_factor;                // The factor representing the change in speed at the start of this trapezoid.
 																			// (The end of the curren speed trapezoid is defined by the entry_factor of the
@@ -91,6 +91,18 @@ typedef struct GRBL_METH{
 	block_t block_buffer[BLOCK_BUFFER_SIZE];  // A ring buffer for motion instructions,是一个存放接下来要执行动作的环形队列
 	volatile int32_t block_buffer_head;           // Index of the next block to be pushed
 	volatile int32_t block_buffer_tail;           // Index of the block to process now
+	// The current position of the tool in absolute steps
+	// 应该是当前坐标距离0点的步数
+	int32_t position[3];
+	uint8_t acceleration_manager_enabled;   //用来标记轴是否需要加速运动
+
+	// stepper.c中实现算法所用的中间变量
+	// Counter variables for the bresenham line tracer
+	int32_t st_counter_x;
+	int32_t st_counter_y;
+	int32_t st_counter_z;
+	uint32_t step_events_completed; // 在一个动作区块中已经执行完了的步数
+	block_t *current_block;  // 当前运行中的动作区块指针
 }GRBL_METH;
 
 #include "stepper.h"

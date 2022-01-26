@@ -47,14 +47,10 @@ extern block_t *plan_get_current_block();
 #define ENABLE_STEPPER_DRIVER_INTERRUPT()  //TIMSK1 |= (1<<OCIE1A)
 #define DISABLE_STEPPER_DRIVER_INTERRUPT() //TIMSK1 &= ~(1<<OCIE1A)
 
-static block_t *current_block;  // A pointer to the block currently being traced
 
 // Variables used by The Stepper Driver Interrupt
 static uint8_t out_bits;        // The next stepping-bits to be output
-static int32_t counter_x,       // Counter variables for the bresenham line tracer
-							 counter_y, 
-							 counter_z;       
-static uint32_t step_events_completed; // The number of step events executed in the current block
+
 static volatile int32_t busy; // 1 when SIG_OUTPUT_COMPARE1A is being serviced. Used to avoid retriggering that handler.
 
 // Variables used by the trapezoid generation
@@ -83,7 +79,7 @@ static uint32_t trapezoid_adjusted_rate;      // The current rate of step_events
 void set_step_events_per_minute(uint32_t steps_per_minute);
 
 void st_wake_up() {
-	ENABLE_STEPPER_DRIVER_INTERRUPT();  
+	// ENABLE_STEPPER_DRIVER_INTERRUPT();  
 }
 
 // Initializes the trapezoid generator from the current block. Called whenever a new 
@@ -97,15 +93,15 @@ inline void trapezoid_generator_reset() {
 // This is called ACCELERATION_TICKS_PER_SECOND times per second by the step_event
 // interrupt. It can be assumed that the trapezoid-generator-parameters and the
 // current_block stays untouched by outside handlers for the duration of this function call.
-inline void trapezoid_generator_tick() {     
+inline void trapezoid_generator_tick(GRBL_METH*meth) {     
 	if (current_block) {
-		if (step_events_completed < current_block->accelerate_until) {
+		if (meth->step_events_completed < current_block->accelerate_until) {
 			trapezoid_adjusted_rate += current_block->rate_delta;
 			if (trapezoid_adjusted_rate > current_block->nominal_rate ) {
 				trapezoid_adjusted_rate = current_block->nominal_rate;
 			}
 			set_step_events_per_minute(trapezoid_adjusted_rate);
-		} else if (step_events_completed > current_block->decelerate_after) {
+		} else if (meth->step_events_completed > current_block->decelerate_after) {
 			// NOTE: We will only reduce speed if the result will be > 0. This catches small
 			// rounding errors that might leave steps hanging after the last trapezoid tick.
 			if (trapezoid_adjusted_rate > current_block->rate_delta) {
@@ -132,17 +128,6 @@ void PwmInter(GRBL_METH*meth) {
 	// TODO: Check if the busy-flag can be eliminated by just disabeling this interrupt while we are in it
 	
 	if(busy){ return; } // The busy-flag is used to avoid reentering this interrupt
-	// Set the direction pins a cuple of nanoseconds before we step the steppers
-	// STEPPING_PORT = (STEPPING_PORT & ~DIRECTION_MASK) | (out_bits & DIRECTION_MASK);
-	// dir 输出高
-	// Then pulse the stepping pins
-	// STEPPING_PORT = (STEPPING_PORT & ~STEP_MASK) | out_bits;
-
-	// Reset step pulse reset timer so that The Stepper Port Reset Interrupt can reset the signal after
-	// exactly settings.pulse_microseconds microseconds.  Clear the overflow flag to stop a queued
-	// interrupt from resetting the step pulse too soon.
-	// TCNT2 = -(((settings.pulse_microseconds-2)*TICKS_PER_MICROSECOND)/8);
-	// TIFR2 |= (1<<TOV2);
 
 	busy = 1;
 	// sei(); // Re enable interrupts (normally disabled while inside an interrupt handler)
@@ -154,11 +139,11 @@ void PwmInter(GRBL_METH*meth) {
 		// Anything in the buffer?
 		current_block = plan_get_current_block();
 		if (current_block != NULL) {
-			trapezoid_generator_reset();
-			counter_x = -(current_block->step_event_count >> 1);
-			counter_y = counter_x;
-			counter_z = counter_x;
-			step_events_completed = 0;
+			trapezoid_generator_reset();// step_event_count = 20步，steps_x = 20
+			meth->st_counter_x = -(current_block->step_event_count >> 1);//-10步
+			meth->st_counter_y = meth->st_counter_x;
+			meth->st_counter_z = meth->st_counter_x;
+			meth->step_events_completed = 0;
 		} else {
 			DISABLE_STEPPER_DRIVER_INTERRUPT();
 		}    
@@ -169,24 +154,24 @@ void PwmInter(GRBL_METH*meth) {
 		meth->XAxisPwmL();
 		meth->YAxisPwmL();
 		meth->ZAxisPwmL();
-		counter_x += current_block->steps_x;//-20 0 20 0  
-		if (counter_x > 0) {
-				meth->XAxisPwmH();
-			counter_x -= current_block->step_event_count;
+		meth->st_counter_x += current_block->steps_x;//10
+		if (meth->st_counter_x > 0) {
+			meth->XAxisPwmH();
+			meth->st_counter_x -= current_block->step_event_count;//10-20=-10
 		}
-		counter_y += current_block->steps_y;
-		if (counter_y > 0) {
-				meth->YAxisPwmH();
-			counter_y -= current_block->step_event_count;
+		meth->st_counter_y += current_block->steps_y;
+		if (meth->st_counter_y > 0) {
+			meth->YAxisPwmH();
+			meth->st_counter_y -= current_block->step_event_count;
 		}
-		counter_z += current_block->steps_z;
-		if (counter_z > 0) {
-				meth->ZAxisPwmH();
-			counter_z -= current_block->step_event_count;
+		meth->st_counter_z += current_block->steps_z;
+		if (meth->st_counter_z > 0) {
+			meth->ZAxisPwmH();
+			meth->st_counter_z -= current_block->step_event_count;
 		}
 		// If current block is finished, reset pointer 
-		step_events_completed += 1;
-		if (step_events_completed >= current_block->step_event_count) {
+		meth->step_events_completed += 1;
+		if (meth->step_events_completed >= current_block->step_event_count) {
 			current_block = NULL;
 			plan_discard_current_block();
 		}
