@@ -1,30 +1,3 @@
-/*
-	planner.c - buffers movement commands and manages the acceleration profile plan
-	Part of Grbl
-
-	The MIT License (MIT)
-
-	Grbl(tm) - Embedded CNC g-code interpreter and motion-controller
-	Copyright (c) 2009-2011 Simen Svale Skogsrud
-
-	Permission is hereby granted, free of charge, to any person obtaining a copy
-	of this software and associated documentation files (the "Software"), to deal
-	in the Software without restriction, including without limitation the rights
-	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-	copies of the Software, and to permit persons to whom the Software is
-	furnished to do so, subject to the following conditions:
-
-	The above copyright notice and this permission notice shall be included in
-	all copies or substantial portions of the Software.
-
-	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-	THE SOFTWARE.
-*/
 
 /* The ring buffer implementation gleaned from the wiring_serial library by David A. Mellis. */
 
@@ -267,7 +240,7 @@ void planner_recalculate_trapezoids() {
 	calculate_trapezoid_for_block(next, next->entry_factor, factor_for_safe_speed(meth,next));
 }
 
-// Recalculates the motion plan according to the following ç®—æ³•:
+// Recalculates the motion plan according to the following Ëã·¨:
 //
 //   1. Go over every block in reverse order and calculate a junction speed reduction (i.e. block_t.entry_factor) 
 //      so that:
@@ -297,49 +270,51 @@ void plan_init() {
 	clear_vector(meth->position);
 }
 
-void plan_set_acceleration_manager_enabled(int32_t enabled) {
+void plan_set_acceleration_manager_enabled(GRBL_METH*meth,int32_t enabled) {
 	if ((!!meth->acceleration_manager_enabled) != (!!enabled)) {
 		st_synchronize();
 		meth->acceleration_manager_enabled = !!enabled;
 	}
 }
 
-int32_t plan_is_acceleration_manager_enabled() {
+int32_t plan_is_acceleration_manager_enabled(GRBL_METH*meth) {
 	return(meth->acceleration_manager_enabled);
 }
-
-void plan_discard_current_block() {
+// ËµÃ÷Õâ¸ö¶¯×÷Çø¿é£¨ÒÔblock_buffer_tailË÷ÒýµÃµ½£©Ê¹ÓÃÍê³É£¬Èç¹ûÓÐ¸ü¶àÄÜÖ´ÐÐµÄ¶¯×÷Çø¿é£¬¾Í¸üÐÂË÷Òý
+void plan_discard_current_block(GRBL_METH*meth) {
 	if (meth->block_buffer_head != meth->block_buffer_tail) {
 		meth->block_buffer_tail = (meth->block_buffer_tail + 1) % BLOCK_BUFFER_SIZE;  
 	}
 }
 
-block_t *plan_get_current_block() {
-	if (meth->block_buffer_head == meth->block_buffer_tail) { return(NULL); }
+block_t *plan_get_current_block(GRBL_METH*meth) {
+	if (meth->block_buffer_head == meth->block_buffer_tail) {
+		return(NULL); 
+	}
 	return(&block_buffer[meth->block_buffer_tail]);
 }
 
 // Add a new linear movement to the buffer. steps_x, _y and _z is the absolute position in 
 // mm. Microseconds specify how many microseconds the move should take to perform. To aid acceleration
 // calculation the caller must also provide the physical length of the line in millimeters.
-// feed_rateå•ä½æ˜¯ æ¯«ç±³/ç§’
-// å¤§æ¦‚åŠŸèƒ½æ˜¯å¾—åˆ°ä¸€æ¡çº¿çš„æ‰§è¡Œåˆ°X,Y,Zä½ç½®éœ€è¦çš„æ­¥æ•°
-// xï¼Œyï¼Œz:å•ä½æ¯«ç±³
+// feed_rateµ¥Î»ÊÇ ºÁÃ×/Ãë
+// ´ó¸Å¹¦ÄÜÊÇµÃµ½Ò»ÌõÏßµÄÖ´ÐÐµ½X,Y,ZÎ»ÖÃÐèÒªµÄ²½Êý
+// x£¬y£¬z:µ¥Î»ºÁÃ×
 
 void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_rate, int32_t invert_feed_rate) {
 	// The target position of the tool in absolute steps
 	
-	// è®¡ç®—æ¯è½´ä¸Šçš„æ­¥æ•°
+	// ¼ÆËãÃ¿ÖáÉÏµÄ²½Êý
 	int32_t target[3] = {0};
 	target[X_AXIS] = lround(x*meth->settings.steps_per_mm[X_AXIS]);
 	target[Y_AXIS] = lround(y*meth->settings.steps_per_mm[Y_AXIS]);
-	target[Z_AXIS] = lround(z*meth->settings.steps_per_mm[Z_AXIS]);  //æµ®ç‚¹çº¦ç­‰æ•´æ•°   
+	target[Z_AXIS] = lround(z*meth->settings.steps_per_mm[Z_AXIS]);  //¸¡µãÔ¼µÈÕûÊý   
 	
 	// Calculate the buffer head after we push this byte
 	int32_t next_buffer_head = (meth->block_buffer_head + 1) % BLOCK_BUFFER_SIZE;	
 	// If the buffer is full: good! That means we are well ahead of the robot. 
 	// Rest here until there is room in the buffer.
-	while(meth->block_buffer_tail == next_buffer_head) { ; }//è¿™æ˜¯å¹²å•¥ç”¨?
+	while(meth->block_buffer_tail == next_buffer_head) { ; }//ÕâÊÇ¸ÉÉ¶ÓÃ?
 	// Prepare to set up new block
 	block_t *block = &block_buffer[meth->block_buffer_head];
 	// Number of steps for each axis
@@ -357,14 +332,14 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	
 	
 	uint32_t microseconds = 0;
-	if (!invert_feed_rate) {//è®¡ç®—æœ€é•¿å®Œæˆæ—¶é—´ï¼ˆæ¯«ç§’ï¼‰
+	if (!invert_feed_rate) {//¼ÆËã×î³¤Íê³ÉÊ±¼ä£¨ºÁÃë£©
 		microseconds = lround((block->millimeters/feed_rate)*1000000);
 	} else {
 		microseconds = lround(ONE_MINUTE_OF_MICROSECONDS/feed_rate);
 	}
 
-	// è®¡ç®—æ¯è½´ä¸Šçš„é€Ÿåº¦ï¼ˆmm/minuteï¼‰
-	double multiplier = 60.0*1000000.0/microseconds;//å¾—åˆ°1/åˆ†é’Ÿ
+	// ¼ÆËãÃ¿ÖáÉÏµÄËÙ¶È£¨mm/minute£©
+	double multiplier = 60.0*1000000.0/microseconds;//µÃµ½1/·ÖÖÓ
 	block->speed_x = delta_x_mm * multiplier;
 	block->speed_y = delta_y_mm * multiplier;
 	block->speed_z = delta_z_mm * multiplier; 
@@ -372,13 +347,13 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	block->nominal_rate = ceil(block->step_event_count * multiplier);  
 	block->entry_factor = 0.0;
 	
-	// ä¸ºæ¢¯å½¢é€Ÿåº¦æ¨¡å—è®¡ç®—åŠ é€Ÿåº¦. Depending on the slope of the line
+	// ÎªÌÝÐÎËÙ¶ÈÄ£¿é¼ÆËã¼ÓËÙ¶È. Depending on the slope of the line
 	// average travel per step event changes. For a line along one axis the travel per step event
 	// is equal to the travel/step in the particular axis. For a 45 degree line the steppers of both
 	// axes might step for every step event. Travel per step event is then sqrt(travel_x^2+travel_y^2).
 	// To generate trapezoids with contant acceleration between blocks the rate_delta must be computed 
 	// specifically for each line to compensate for this phenomenon:
-	double travel_per_step = block->millimeters/block->step_event_count;//è®¡ç®—é€Ÿåº¦(mm/step)
+	double travel_per_step = block->millimeters/block->step_event_count;//¼ÆËãËÙ¶È(mm/step)
 	block->rate_delta = ceil(
 		((meth->settings.acceleration*60.0)/(ACCELERATION_TICKS_PER_SECOND))/ // acceleration mm/sec/sec per acceleration_tick
 		travel_per_step);// convert to: acceleration steps/min/acceleration_tick    
@@ -394,22 +369,18 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 		block->rate_delta = 0;
 	}
 	
-	// å¾—åˆ°æ–¹å‘
-	block->direction_bits = 0;
+	// µÃµ½·½Ïò
 	if (target[X_AXIS] < meth->position[X_AXIS]) {
-		block->direction_bits |= (1<<X_DIRECTION_BIT); 
 		meth->XAxisDir_H();
 	}else{
 		meth->XAxisDir_L();
 	}
 	if (target[Y_AXIS] < meth->position[Y_AXIS]) {
-		block->direction_bits |= (1<<Y_DIRECTION_BIT); 
 		meth->YAxisDir_H();
 	}else{
 		meth->YAxisDir_L();
 	}
 	if (target[Z_AXIS] < meth->position[Z_AXIS]) {
-		block->direction_bits |= (1<<Z_DIRECTION_BIT); 
 		meth->ZAxisDir_H();
 	}else{
 		meth->ZAxisDir_L();
@@ -421,6 +392,6 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	memcpy(meth->position, target, sizeof(target)); // meth->position[] = target[]
 	
 	if (meth->acceleration_manager_enabled) { planner_recalculate(); }  
-	st_wake_up();
+	meth->EnableTimeInter();
 }
 

@@ -1,19 +1,28 @@
 #ifndef GRBL_H
 #define GRBL_H
 
-#ifdef __cplusplus
-   extern "C"{ //åœ¨æœ€é¡¶å±‚è°ƒç”¨hæ–‡ä»¶ä½¿ç”¨ï¼Œ
-#endif 
+	#ifdef __cplusplus
+	   extern "C"{ //ÔÚ×î¶¥²ãµ÷ÓÃhÎÄ¼şÊ¹ÓÃ£¬
+	#endif 
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <inttypes.h>
-#define BLOCK_BUFFER_SIZE 20 //å­˜æ”¾æ¥ä¸‹æ¥è¦æ‰§è¡ŒåŠ¨ä½œçš„ç¯å½¢é˜Ÿåˆ—,20ä¸ªåŠ¨ä½œ
+
+#include "gcode.h"
+#include "motion_control.h"
+#include "planner.h"
+#include "serial_protocol.h"
+#include "serial_protocol.h"
+#include "spindle_control.h"
+#include "stepper.h"
+#define LINE_BUFFER_SIZE 50//Ò»¸öÊı¾İ°üµÄ»º´æ³¤¶È µ¥Î»£º×Ö½Ú
+#define BLOCK_BUFFER_SIZE 20 //´æ·Å½ÓÏÂÀ´ÒªÖ´ĞĞ¶¯×÷µÄ»·ĞÎ¶ÓÁĞ,20¸ö¶¯×÷
 // Current global settings (persisted in EEPROM from byte 1 onwards)
 typedef struct {
-  double steps_per_mm[3];
+  double steps_per_mm[3];//·Ö±ğ¶ÔÓ¦x,y,zÖáÔËĞĞ1ºÁÃ×ĞèÒª¶àÉÙ¸öÂö³å
   uint8_t microsteps;
   uint8_t pulse_microseconds;
   double default_feed_rate;
@@ -47,13 +56,13 @@ typedef struct {
 typedef struct {
 	// Fields used by the bresenham algorithm for tracing the line
 	uint32_t steps_x, steps_y, steps_z; // Step count along each axis
-	uint8_t  direction_bits;            // The direction bit set for this block (refers to *_DIRECTION_BIT in config.h)
-	int32_t  step_event_count;          // æ¯æ¬¡ç§»åŠ¨çš„æ­¥æ•°ï¼Œä»¥ä¸‹xï¼Œyï¼Œzè½´ä¸­æœ€å¤§æ­¥æ•°ä¸ºå‡†
-	uint32_t nominal_rate;              // The nominal step rate for this block in step_events/minute
+	// uint8_t  direction_bits;            // The direction bit set for this block (refers to *_DIRECTION_BIT in config.h)
+	int32_t  step_event_count;          // Ã¿´ÎÒÆ¶¯µÄ²½Êı£¬ÒÔÏÂx£¬y£¬zÖáÖĞ×î´ó²½ÊıÎª×¼
+	uint32_t nominal_rate;              // µÃµ½Ò»¸öÖµ£¬±íÊ¾Ã¿¸ö¶¯×÷Çø¿éÉÏ×î³¤²½Êı/min µ¥Î»£¨²½Êı/min£©
 	
 	// Fields used by the motion planner to manage acceleration
 	double speed_x, speed_y, speed_z;   // Nominal mm/minute for each axis
-	double nominal_speed;               // è¯¥åŠ¨ä½œåŒºå—æ‰§è¡ŒåŠ¨ä½œæ—¶å€™çš„é¢å®šé€Ÿåº¦
+	double nominal_speed;               // ¸Ã¶¯×÷Çø¿éÖ´ĞĞ¶¯×÷Ê±ºòµÄ¶î¶¨ËÙ¶È
 	double millimeters;                 // The total travel of this block in mm
 	double entry_factor;                // The factor representing the change in speed at the start of this trapezoid.
 																			// (The end of the curren speed trapezoid is defined by the entry_factor of the
@@ -63,12 +72,17 @@ typedef struct {
 	uint32_t initial_rate;              // The jerk-adjusted step rate at start of block  
 	uint32_t final_rate;                // The minimal rate at exit
 	int32_t rate_delta;                 // The steps/minute to add or subtract when changing speed (must be positive)
-	uint32_t accelerate_until;          // The index of the step event on which to stop acceleration
+	uint32_t accelerate_until;          // ÓÃÀ´±ê¼ÇÔÚÄÄÒ»¸östepÉÏÍ£Ö¹¼ÓËÙ µ¥Î»step
 	uint32_t decelerate_after;          // The index of the step event on which to start decelerating
 	
 } block_t;
 typedef struct GRBL_METH{
-	int8_t (*ReadChar)(void);//ä»ä¸²å£å¾—åˆ°ä¸€ä¸ªå­—èŠ‚çš„æ•°æ®,æ²¡æœ‰æ•°æ®æ—¶å€™è¿”å›-1
+	// ´Ó´®¿ÚµÃµ½Êı¾İ°ü,Ò»°ãÀ´ËµGcodeºÍÅäÖÃcode¶¼ÊÇÒ»ĞĞ×Ö·û£¬ËùÒÔÒ»¸öÊı¾İ°üÊÇÒÔ\r\n½áÊø
+	// Êı¾İÖ¸ÕëÖ¸Ïò½ÓÊÜ»º´æ£¬µ±µÃµ½Êı¾İÖ®ºó£¬¸´ÖÆÊı¾İµ½Õâ¸ö»º´æÇøÓò
+	// maxlen´ú±íµÄÊÇ»º³åÇø³¤¶È
+	// ·µ»Ø-1:Ã»ÓĞÊı¾İ
+	// ·µ»Ø>0:¸´ÖÆÖ®ºóµÄÊı¾İ³¤¶È£¨¿ÉÄÜÊµ¼ÊÊı¾İ³¤¶È±Èmaxlen´ó£¬µ«ÊÇ·µ»Ømaxlen£©
+	int8_t (*ReadCmd)(uint8_t*,uint8_t maxlen);
 	void (*XAxisPwmL)(void);
 	void (*XAxisPwmH)(void);
 	void (*XAxisDir_L)(void);
@@ -81,28 +95,39 @@ typedef struct GRBL_METH{
 	void (*ZAxisPwmH)(void);
 	void (*ZAxisDir_L)(void);
 	void (*ZAxisDir_H)(void);
-	// æ‰“å°æ—¥å¿—ä½¿ç”¨
+	void (*DisableTimeInter)(void);//½ûÖ¹¶¨Ê±Æ÷ÖĞ¶Ï
+	void (*EnableTimeInter)(void);//Ê¹ÄÜ¶¨Ê±Æ÷ÖĞ¶Ï£¬Òç³öÖĞ¶Ï
+	double (*SetTimeInterMs)(double timems);//ÉèÖÃ¶¨Ê±Æ÷ÖĞ¶ÏÖÜÆÚ µ¥Î»ms£¬»á·µ»ØÊµ¼ÊÖĞ¶Ï¼ä¸ôÊ±¼ä
+	// ¶ÔÓÚio¿ÚĞèÒªÊä³ö¸ßµçÆ½Ö®ºóÔÙÀ­µÍ£¬Õâ¸öÊ±¼äÓ¦¸Ã½»¸ø±È½Ï²¶»ñÖĞ¶Ï×ö£¬¾ÍÊÇÒç³öÖĞ¶Ï·¢ÉúÖ®ºó£¬ÔÚx¸ö¼ÆÊıÖÜÆÚÖ®ºó·¢ÉúÒç³öÖĞ¶Ï
+	void (*SetTimeCompInterUs)(double timeus);//ÉèÖÃÒ»¸öÔÚ¶¨Ê±Æ÷ÖĞ¶Ï·¢Éú timeus Ö®ºóµÄÁíÍâÒ»¸öÖĞ¶Ï¡£
+	// ´òÓ¡ÈÕÖ¾Ê¹ÓÃ
 	void (*printPgmString)(uint8_t*);
 	void (*printByte)(uint8_t);
-	// å…³é”®å‚æ•°è®¾ç½®
+	
+	uint8_t line[LINE_BUFFER_SIZE];
+	uint8_t char_counter;//
+	// ¹Ø¼ü²ÎÊıÉèÖÃ
 	settings_t settings;
 	parser_state_t gc;
-	// ç”¨äºå­˜æ”¾åŠ¨ä½œé˜Ÿåˆ—
-	block_t block_buffer[BLOCK_BUFFER_SIZE];  // A ring buffer for motion instructions,æ˜¯ä¸€ä¸ªå­˜æ”¾æ¥ä¸‹æ¥è¦æ‰§è¡ŒåŠ¨ä½œçš„ç¯å½¢é˜Ÿåˆ—
+	// ÓÃÓÚ´æ·Å¶¯×÷¶ÓÁĞ
+	block_t block_buffer[BLOCK_BUFFER_SIZE];  // A ring buffer for motion instructions,ÊÇÒ»¸ö´æ·Å½ÓÏÂÀ´ÒªÖ´ĞĞ¶¯×÷µÄ»·ĞÎ¶ÓÁĞ
 	volatile int32_t block_buffer_head;           // Index of the next block to be pushed
 	volatile int32_t block_buffer_tail;           // Index of the block to process now
 	// The current position of the tool in absolute steps
-	// åº”è¯¥æ˜¯å½“å‰åæ ‡è·ç¦»0ç‚¹çš„æ­¥æ•°
+	// Ó¦¸ÃÊÇµ±Ç°×ø±ê¾àÀë0µãµÄ²½Êı
 	int32_t position[3];
-	uint8_t acceleration_manager_enabled;   //ç”¨æ¥æ ‡è®°è½´æ˜¯å¦éœ€è¦åŠ é€Ÿè¿åŠ¨
+	uint8_t acceleration_manager_enabled;   //ÓÃÀ´±ê¼ÇÖáÊÇ·ñĞèÒª¼ÓËÙÔË¶¯
 
-	// stepper.cä¸­å®ç°ç®—æ³•æ‰€ç”¨çš„ä¸­é—´å˜é‡
+	// stepper.cÖĞÊµÏÖËã·¨ËùÓÃµÄÖĞ¼ä±äÁ¿
 	// Counter variables for the bresenham line tracer
 	int32_t st_counter_x;
 	int32_t st_counter_y;
 	int32_t st_counter_z;
-	uint32_t step_events_completed; // åœ¨ä¸€ä¸ªåŠ¨ä½œåŒºå—ä¸­å·²ç»æ‰§è¡Œå®Œäº†çš„æ­¥æ•°
-	block_t *current_block;  // å½“å‰è¿è¡Œä¸­çš„åŠ¨ä½œåŒºå—æŒ‡é’ˆ
+	uint32_t step_events_completed; // ÔÚÒ»¸ö¶¯×÷Çø¿éÖĞÒÑ¾­Ö´ĞĞÍêÁËµÄ²½Êı
+	block_t *current_block;  // µ±Ç°ÔËĞĞÖĞµÄ¶¯×÷Çø¿éÖ¸Õë
+	uint32_t trapezoid_adjusted_rate;// ¸ÃÖµÓÃÓÚµ÷ÕûÃ¿·ÖÖÓÓĞ¶àÉÙ¸ö¶¨Ê±Æ÷ÖĞ¶Ï µ¥Î»£¨step/min£©
+	double ms_per_step_event;        // Á½´Î¶¨Ê±Æ÷ÖĞ¶Ï¼ä¸ôµÄÖ¸ÁîÖÜÆÚ£¬ÏÖÔÚ¸üĞÂ³ÉÁ½´ÎÖĞ¶ÏÊ±ºòµÄ¶¨Ê±Æ÷¼ÆÊıÖÜÆÚÊı
+	double trapezoid_tick_ms_counter;//ÓÃÀ´¼ÆËãÊ±¼ä£¨ms£©
 }GRBL_METH;
 
 #include "stepper.h"
@@ -118,39 +143,20 @@ typedef struct GRBL_METH{
 #define Z_AXIS 2
 #define M_PI 3.14159
 
-// Updated default pin-assignments from 0.6 onwards 
-// (see bottom of file for a copy of the old config)
-
-// #define STEPPERS_ENABLE_DDR     DDRB
-// #define STEPPERS_ENABLE_PORT    PORTB
 #define STEPPERS_ENABLE_BIT         0
 
-// #define STEPPING_DDR       DDRD
-// #define STEPPING_PORT      PORTD
-#define X_STEP_BIT           2
-#define Y_STEP_BIT           3
-#define Z_STEP_BIT           4
-#define X_DIRECTION_BIT      5
-#define Y_DIRECTION_BIT      6
-#define Z_DIRECTION_BIT      7
-
-// #define LIMIT_DDR      DDRB
-// #define LIMIT_PORT     PORTB
 #define X_LIMIT_BIT          1
 #define Y_LIMIT_BIT          2
 #define Z_LIMIT_BIT          3
 
-// #define SPINDLE_ENABLE_DDR DDRB
-// #define SPINDLE_ENABLE_PORT PORTB
-#define SPINDLE_ENABLE_BIT 4
-
-// #define SPINDLE_DIRECTION_DDR DDRB
-// #define SPINDLE_DIRECTION_PORT PORTB
-#define SPINDLE_DIRECTION_BIT 5
-
 // The temporal resolution of the acceleration management subsystem. Higher number
 // give smoother acceleration but may impact performance
-#define ACCELERATION_TICKS_PER_SECOND 40L
+// Õâ¸öÖ÷Òª¿ØÖÆ ¼ÓËÙ ¼õËÙ µÄ¼ÆËãÆµÂÊ£¬Öµ´ú±íÃ¿ÃëÖĞ¼ÆËã¶àÉÙ´Î
+// #define ACCELERATION_TICKS_PER_SECOND 40L
+// ´ú±íÃ¿¸ô¶à¾ÃºÁÃë¼ÆËãÒ»´Î¼ÓËÙ¶È£¬ÖµµÍ¾Í¸ü¼Ó¼ÓËÙ¹ı³Ì¸ü¼ÓÆ½»¬£¬µ«ÊÇÒ²¸ü¿ÉÄÜÓ°ÏìĞÔÄÜ
+#define ACCELERATION_TICKS_MS_PER_MS 25.0
+// Õâ¸ö´ú±í×îĞ¡¶¨Ê±Æ÷ÖĞ¶ÏÆµÂÊ£¬1200´Î/·ÖÖÓ
+#define MINIMUM_STEPS_PER_MINUTE 1200 // The stepper subsystem will never run slower than this, exept when sleeping
 
 #define clear_vector(a) memset(a, 0, sizeof(a))
 #define max(a,b) (((a) > (b)) ? (a) : (b))
@@ -161,11 +167,14 @@ void printFloat(float n);
 
 extern GRBL_METH GrblMeth;
 
+/*-----------------------------------------------------¶ÔÍâº¯Êı-----------------------------------------------------*/
+extern void TimeInter(GRBL_METH*meth);
+extern void TimeInterComp(GRBL_METH*meth);
 
-
-
-#ifdef __cplusplus
-}
-#endif
-
+extern void SpInit(GRBL_METH *meth);
+// Êı¾İ°üÊäÈë´¦Àí£¬ÓÉÕâÀï¿ªÊ¼´¦Àí´úÂë£¬·ÅÔÚÖ÷Ñ­»·ÖĞ
+extern void SpProcess(GRBL_METH *meth);
+	#ifdef __cplusplus
+	}
+	#endif
 #endif

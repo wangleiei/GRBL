@@ -42,12 +42,11 @@ void plan_init();
 // rate is taken to mean "frequency" and would complete the operation in 1/feed_rate minutes.
 void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_rate, int32_t invert_feed_rate);
 
-// Called when the current block is no longer needed. Discards the block and makes the memory
-// availible for new blocks.
+// 说明这个动作区块（以block_buffer_tail索引得到）使用完成，如果有更多能执行的动作区块，就更新索引
 void plan_discard_current_block();
 
-// Gets the current block. Returns NULL if buffer empty
-block_t *plan_get_current_block();
+// 得到最近的动作区块，如果没有返回null
+block_t *plan_get_current_block(GRBL_METH*meth) ;
 
 // Enables or disables acceleration-management for upcoming blocks
 void plan_set_acceleration_manager_enabled(int32_t enabled);

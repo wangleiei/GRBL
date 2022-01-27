@@ -1,7 +1,7 @@
 #include "GrblMeth.h"
 
 #ifdef __cplusplus
-   extern "C"{ //åœ¨æœ€é¡¶å±‚è°ƒç”¨hæ–‡ä»¶ä½¿ç”¨ï¼Œ
+   extern "C"{ //ÔÚ×î¶¥²ãµ÷ÓÃhÎÄ¼şÊ¹ÓÃ£¬
 #endif 
 void GrblInit(){
 
