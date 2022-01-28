@@ -10,7 +10,7 @@ extern void plan_discard_current_block(GRBL_METH*meth);
 
 // #define CYCLES_PER_ACCELERATION_TICK 2//((TICKS_PER_MICROSECOND*1000000)/ACCELERATION_TICKS_PER_SECOND)//应该是代表每隔多少指令周期改变一次速度
 
-static inline void trapezoid_generator_reset(GRBL_METH*meth);
+static void trapezoid_generator_reset(GRBL_METH*meth);
 static void set_step_events_per_minute(GRBL_METH*meth,uint32_t steps_per_minute);
 // Variables used by the trapezoid generation
 //         __________________________
@@ -34,8 +34,8 @@ void set_step_events_per_minute(GRBL_METH*meth,uint32_t steps_per_minute);
 
 // Initializes the trapezoid generator from the current block. Called whenever a new 
 // block begins.
-static inline void trapezoid_generator_reset(GRBL_METH*meth) {
-	meth->trapezoid_adjusted_rate = current_block->initial_rate;  
+static void trapezoid_generator_reset(GRBL_METH*meth) {
+	meth->trapezoid_adjusted_rate = meth->current_block->initial_rate;  
 	meth->trapezoid_tick_ms_counter = 0; // Always start a new trapezoid with a full acceleration tick
 	set_step_events_per_minute(meth,meth->trapezoid_adjusted_rate);
 }
@@ -43,7 +43,7 @@ static inline void trapezoid_generator_reset(GRBL_METH*meth) {
 // This is called ACCELERATION_TICKS_PER_SECOND times per second by the step_event
 // interrupt. It can be assumed that the trapezoid-generator-parameters and the
 // current_block stays untouched by outside handlers for the duration of this function call.
-inline void trapezoid_generator_tick(GRBL_METH*meth) {     
+void trapezoid_generator_tick(GRBL_METH*meth) {     
 	if (meth->current_block) {
 		if (meth->step_events_completed < meth->current_block->accelerate_until) {
 			meth->trapezoid_adjusted_rate += meth->current_block->rate_delta;
@@ -72,8 +72,10 @@ inline void trapezoid_generator_tick(GRBL_METH*meth) {
 }
 
 // grbl驱动中断，由 config_step_timer 函数控制中断频率，从动作区块缓冲中弹出动作，然后产生步进电机管脚脉冲
+// 这个函数中没有对限位开关处理，
 // 还和一个管脚复位中断搭配（Stepper Port Reset Interrupt），借此来产生完整的脉冲
-void TimeInter(GRBL_METH*meth) {        
+void TimeInter(GRBL_METH*meth) {
+	uint8_t blockusedoverflag = 0;
 	// If there is no current block, attempt to pop one from the buffer
 	if (meth->current_block == NULL) {
 		// Anything in the buffer?
@@ -89,33 +91,30 @@ void TimeInter(GRBL_METH*meth) {
 		}
 	} 
 
-	if (meth->current_block != NULL) {
-		// meth->XAxisPwmL();
-		// meth->YAxisPwmL();
-		// meth->ZAxisPwmL();
-		// 如果单独实现某一个输出引脚的值，就需要执行多次才能完成多个轴的运动，
-		// 这会产生阶梯状锯齿运动轨迹，这在CNC中是不允许的。下面我们详细分析IO映射和操作。 		
-		// 我觉有可能会影响
+	if (meth->current_block != NULL) {//xyz轴脉冲驱动是分开的，可能会对路径有影响,如果是同时操作就没有影响
 		meth->st_counter_x += meth->current_block->steps_x;//10
-		if (meth->st_counter_x > 0) {
+		if ((meth->st_counter_x > 0) && (0 == meth->IsTouchX())) {
 			meth->XAxisPwmH();
 			meth->st_counter_x -= meth->current_block->step_event_count;//10-20=-10
-		}
+		}else{blockusedoverflag ++;}
+
 		meth->st_counter_y += meth->current_block->steps_y;
-		if (meth->st_counter_y > 0) {
+		if ((meth->st_counter_y > 0) && (0 == meth->IsTouchY())) {
 			meth->YAxisPwmH();
 			meth->st_counter_y -= meth->current_block->step_event_count;
-		}
+		}else{blockusedoverflag ++;}
+
 		meth->st_counter_z += meth->current_block->steps_z;
-		if (meth->st_counter_z > 0) {
+		if ((meth->st_counter_z > 0) && (0 == meth->IsTouchZ())) {
 			meth->ZAxisPwmH();
 			meth->st_counter_z -= meth->current_block->step_event_count;
-		}
+		}else{blockusedoverflag ++;}
+
 		// If current block is finished, reset pointer 
 		meth->step_events_completed += 1;
-		if (meth->step_events_completed >= meth->current_block->step_event_count) {
+		if ((meth->step_events_completed >= meth->current_block->step_event_count) || (blockusedoverflag == 3)) {
 			meth->current_block = NULL;//说明这个区块的的步数已经用完，动作区块
-			plan_discard_current_block();
+			plan_discard_current_block(meth);
 		}
 	} else {
 		meth->XAxisPwmL();
@@ -136,18 +135,9 @@ void TimeInterComp(GRBL_METH*meth){
 	meth->YAxisPwmL();
 	meth->ZAxisPwmL();
 }
-// This interrupt is set up by SIG_OUTPUT_COMPARE1A when it sets the motor port bits. It resets
-// the motor port after a short period (settings.pulse_microseconds) completing one step cycle.
-// SIGNAL(TIMER2_OVF_vect)
-// {
-//   // reset stepping pins (leave the direction pins)
-//   STEPPING_PORT = (STEPPING_PORT & ~STEP_MASK) | (settings.invert_mask & STEP_MASK); 
-// }
-
 // Block until all buffered steps are executed
-void st_synchronize()
-{
-	while(plan_get_current_block()) { ; }    
+void st_synchronize(GRBL_METH*meth){
+	while(plan_get_current_block(meth)) { ; }    
 }
 
 // 配置每隔多少次计数周期来一次定时器1中断，返回实际时间上最接近的计数周期数量
@@ -165,6 +155,10 @@ static void set_step_events_per_minute(GRBL_METH*meth,uint32_t steps_per_minute)
 
 	meth->ms_per_step_event = meth->SetTimeInterMs(steps_per_minute/60);
 }
-void st_go_home(){
+void st_go_home(GRBL_METH*meth){
+	// meth->IsCheckLimitFlag = 0;
+	plan_buffer_line(meth,-100000,-100000,-100000,30,0);
+	plan_buffer_line(meth,10,10,10,5,0);
+	plan_buffer_line(meth,-10,-10,-10,1,0);
 	// Todo: Perform the homing cycle
 }

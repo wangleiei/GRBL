@@ -27,30 +27,25 @@
 
 #define FAIL(status) meth->gc.status_code = status;
 
-int32_t read_double(uint8_t *line,               //  <- string: line of RS274/NGC code being processed
+static int32_t read_double(GRBL_METH *meth,uint8_t *line,               //  <- string: line of RS274/NGC code being processed
 										 int32_t *char_counter,        //  <- pointer to a counter for position on the line 
 										 double *double_ptr); //  <- pointer to double to be read                  
 
-static int32_t next_statement(uint8_t *letter, double *double_ptr, uint8_t *line, int32_t *char_counter);
+static int32_t next_statement(GRBL_METH *meth,uint8_t *letter, double *double_ptr, uint8_t *line, int32_t *char_counter) ;
+static void select_plane(GRBL_METH *meth,uint8_t axis_0, uint8_t axis_1, uint8_t axis_2);
 
-
-void select_plane(uint8_t axis_0, uint8_t axis_1, uint8_t axis_2) 
-{
+static void select_plane(GRBL_METH *meth,uint8_t axis_0, uint8_t axis_1, uint8_t axis_2){
 	meth->gc.plane_axis_0 = axis_0;
 	meth->gc.plane_axis_1 = axis_1;
 	meth->gc.plane_axis_2 = axis_2;
 }
 
-void gc_init() {
-	memset(&gc, 0, sizeof(gc));
-	meth->gc.feed_rate = settings.default_feed_rate/60;
-	meth->gc.seek_rate = settings.default_seek_rate/60;
-	select_plane(X_AXIS, Y_AXIS, Z_AXIS);
+void gc_init(GRBL_METH *meth) {
+	memset(&meth->gc, 0, sizeof(meth->gc));
+	meth->gc.feed_rate = meth->settings.default_feed_rate/60;
+	meth->gc.seek_rate = meth->settings.default_seek_rate/60;
+	select_plane(meth,X_AXIS, Y_AXIS, Z_AXIS);
 	meth->gc.absolute_mode = 1;
-}
-
-inline float to_millimeters(double value) {
-	return(meth->gc.inches_mode ? (value * MM_PER_INCH) : value);
 }
 
 // Find the angle in radians of deviance from the positive y axis. negative angles to the left of y-axis, 
@@ -72,12 +67,20 @@ double theta(double x, double y)
 // 执行G代码
 // Executes one line of 0-terminated G-Code. The line is assumed to contain only uppercase
 // characters and signed floating point values (no whitespace).
-uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line) {
+uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line){
 	int32_t char_counter = 0;  
-	uint8_t letter;
-	double value;
-	double unit_converted_value;
+	uint8_t letter = 0;
+	double value = 0.0;
+	double unit_converted_value = 0.0;
 	double inverse_feed_rate = -1; // negative inverse_feed_rate means no inverse_feed_rate specified
+	double x = 0.0;
+	double y = 0.0;
+	double h_x2_div_d = 0.0;
+	double theta_start = 0.0;
+	double theta_end = 0.0;
+	double angular_travel = 0.0;
+	double radius= 0.0;
+	double depth= 0.0;
 	int32_t radius_mode = 0;
 	
 	uint8_t absolute_override = 0;          /* 1 = absolute motion for this block only {G53} */
@@ -88,8 +91,8 @@ uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line) {
 	double p = 0, r = 0;
 	int32_t int_value;
 	
-	clear_vector(target);
-	clear_vector(offset);
+	memset(target,0,sizeof(target));
+	memset(offset,0,sizeof(offset));
 
 	meth->gc.status_code = GCSTATUS_OK;
 	
@@ -105,11 +108,11 @@ uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line) {
 				settings_dump(meth); 
 				return(GCSTATUS_OK); 
 		}
-		read_double(line,&char_counter, &p);
+		read_double(meth,line,&char_counter, &p);
 		if(line[char_counter++] != '=') {
 				return(GCSTATUS_UNSUPPORTED_STATEMENT); 
 		}
-		read_double(line, &char_counter, &value);
+		read_double(meth,line, &char_counter, &value);
 		if(line[char_counter] != 0) {
 				return(GCSTATUS_UNSUPPORTED_STATEMENT); 
 		}
@@ -118,43 +121,43 @@ uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line) {
 	}
 	
 	/* We'll handle this as g-code. First: parse all statements */
-
+	// G0X10.782Y26.491 
 	// Pass 1: Commands,应该是一些参数类型的命令
-	while(next_statement(&letter, &value, line, &char_counter)) {
+	while(next_statement(meth,&letter, &value, line, &char_counter)) {
 		int_value = trunc(value);//舍取小数位后的整数。
 		switch(letter) {
 			case 'G':
-			switch(int_value) {
-				case 0: meth->gc.motion_mode = MOTION_MODE_SEEK; break;
-				case 1: meth->gc.motion_mode = MOTION_MODE_LINEAR; break;
-				case 2: meth->gc.motion_mode = MOTION_MODE_CW_ARC; break;
-				case 3: meth->gc.motion_mode = MOTION_MODE_CCW_ARC; break;
-				case 4: next_action = NEXT_ACTION_DWELL; break;
-				case 17: select_plane(X_AXIS, Y_AXIS, Z_AXIS); break;
-				case 18: select_plane(X_AXIS, Z_AXIS, Y_AXIS); break;
-				case 19: select_plane(Y_AXIS, Z_AXIS, X_AXIS); break;
-				case 20: meth->gc.inches_mode = 1; break;
-				case 21: meth->gc.inches_mode = 0; break;
-				case 28: case 30: next_action = NEXT_ACTION_GO_HOME; break;
-				case 53: absolute_override = 1; break;
-				case 80: meth->gc.motion_mode = MOTION_MODE_CANCEL; break;
-				case 90: meth->gc.absolute_mode = 1; break;
-				case 91: meth->gc.absolute_mode = 0; break;
-				case 93: meth->gc.inverse_feed_rate_mode = 1; break;
-				case 94: meth->gc.inverse_feed_rate_mode = 0; break;
-				default: FAIL(GCSTATUS_UNSUPPORTED_STATEMENT);
-			}
+				switch(int_value) {
+					case 0: meth->gc.motion_mode = MOTION_MODE_SEEK; break;
+					case 1: meth->gc.motion_mode = MOTION_MODE_LINEAR; break;
+					case 2: meth->gc.motion_mode = MOTION_MODE_CW_ARC; break;
+					case 3: meth->gc.motion_mode = MOTION_MODE_CCW_ARC; break;
+					case 4: next_action = NEXT_ACTION_DWELL; break;
+					case 17: select_plane(meth,X_AXIS, Y_AXIS, Z_AXIS); break;
+					case 18: select_plane(meth,X_AXIS, Z_AXIS, Y_AXIS); break;
+					case 19: select_plane(meth,Y_AXIS, Z_AXIS, X_AXIS); break;
+					case 20: meth->gc.inches_mode = 1; break;
+					case 21: meth->gc.inches_mode = 0; break;
+					case 28: case 30: next_action = NEXT_ACTION_GO_HOME; break;
+					case 53: absolute_override = 1; break;
+					case 80: meth->gc.motion_mode = MOTION_MODE_CANCEL; break;
+					case 90: meth->gc.absolute_mode = 1; break;
+					case 91: meth->gc.absolute_mode = 0; break;
+					case 93: meth->gc.inverse_feed_rate_mode = 1; break;
+					case 94: meth->gc.inverse_feed_rate_mode = 0; break;
+					default: FAIL(GCSTATUS_UNSUPPORTED_STATEMENT);
+				}
 			break;
 			
 			case 'M':
-			switch(int_value) {
-				case 0: case 1: meth->gc.program_flow = PROGRAM_FLOW_PAUSED; break;
-				case 2: case 30: case 60: meth->gc.program_flow = PROGRAM_FLOW_COMPLETED; break;
-				case 3: meth->gc.spindle_direction = 1; break;
-				case 4: meth->gc.spindle_direction = -1; break;
-				case 5: meth->gc.spindle_direction = 0; break;
-				default: FAIL(GCSTATUS_UNSUPPORTED_STATEMENT);
-			}            
+				switch(int_value) {
+					case 0: case 1: meth->gc.program_flow = PROGRAM_FLOW_PAUSED; break;
+					case 2: case 30: case 60: meth->gc.program_flow = PROGRAM_FLOW_COMPLETED; break;
+					case 3: meth->gc.spindle_direction = 1; break;
+					case 4: meth->gc.spindle_direction = -1; break;
+					case 5: meth->gc.spindle_direction = 0; break;
+					default: FAIL(GCSTATUS_UNSUPPORTED_STATEMENT);
+				}            
 			break;
 			case 'T': meth->gc.tool = trunc(value); break;
 		}
@@ -165,13 +168,13 @@ uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line) {
 	if (meth->gc.status_code) { return(meth->gc.status_code); }
 
 	char_counter = 0;
-	clear_vector(offset);
+	memset(offset,0,sizeof(offset));
 	memcpy(target, meth->gc.position, sizeof(target)); // i.e. target = meth->gc.position
 
 	// Pass 2: Parameters
-	while(next_statement(&letter, &value, line, &char_counter)) {
+	while(next_statement(meth,&letter, &value, line, &char_counter)) {
 		int_value = trunc(value);
-		unit_converted_value = to_millimeters(value);
+		unit_converted_value = meth->gc.inches_mode ? (value * MM_PER_INCH) : value;//单位全部换算成毫米
 		switch(letter) {
 			case 'F': 
 			if (meth->gc.inverse_feed_rate_mode) {
@@ -210,8 +213,8 @@ uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line) {
 	
 	// Perform any physical actions
 	switch (next_action) {
-		case NEXT_ACTION_GO_HOME: mc_go_home(); break;
-		case NEXT_ACTION_DWELL: mc_dwell(trunc(p*1000)); break;
+		case NEXT_ACTION_GO_HOME: mc_go_home(meth); break;
+		case NEXT_ACTION_DWELL: mc_dwell(meth,trunc(p*1000)); break;
 		case NEXT_ACTION_DEFAULT: 
 		switch (meth->gc.motion_mode) {
 			case MOTION_MODE_CANCEL: break;
@@ -275,11 +278,11 @@ uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line) {
 				*/
 				
 				// Calculate the change in position along each selected axis
-				double x = target[meth->gc.plane_axis_0]-meth->gc.position[meth->gc.plane_axis_0];
-				double y = target[meth->gc.plane_axis_1]-meth->gc.position[meth->gc.plane_axis_1];
+				x = target[meth->gc.plane_axis_0]-meth->gc.position[meth->gc.plane_axis_0];
+				y = target[meth->gc.plane_axis_1]-meth->gc.position[meth->gc.plane_axis_1];
 				
-				clear_vector(offset);
-				double h_x2_div_d = -sqrt(4 * r*r - x*x - y*y)/hypot(x,y); // == -(h * 2 / d)
+				memset(offset,0,sizeof(offset));
+				h_x2_div_d = -sqrt(4 * r*r - x*x - y*y)/hypot(x,y); // == -(h * 2 / d)
 				// If r is smaller than d, the arc is now traversing the complex plane beyond the reach of any
 				// real CNC, and thus - for practical reasons - we will terminate promptly:
 				if(isnan(h_x2_div_d)) { FAIL(GCSTATUS_FLOATING_POINT_ERROR); return(meth->gc.status_code); }
@@ -329,23 +332,23 @@ uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line) {
 			*/
 						
 			// calculate the theta (angle) of the current point
-			double theta_start = theta(-offset[meth->gc.plane_axis_0], -offset[meth->gc.plane_axis_1]);
+			theta_start = theta(-offset[meth->gc.plane_axis_0], -offset[meth->gc.plane_axis_1]);
 			// calculate the theta (angle) of the target point
-			double theta_end = theta(target[meth->gc.plane_axis_0] - offset[meth->gc.plane_axis_0] - meth->gc.position[meth->gc.plane_axis_0], 
+			theta_end = theta(target[meth->gc.plane_axis_0] - offset[meth->gc.plane_axis_0] - meth->gc.position[meth->gc.plane_axis_0], 
 				 target[meth->gc.plane_axis_1] - offset[meth->gc.plane_axis_1] - meth->gc.position[meth->gc.plane_axis_1]);
 			// ensure that the difference is positive so that we have clockwise travel
 			if (theta_end < theta_start) { theta_end += 2*M_PI; }
-			double angular_travel = theta_end-theta_start;
+			angular_travel = theta_end-theta_start;
 			// Invert angular motion if the g-code wanted a counterclockwise arc
 			if (meth->gc.motion_mode == MOTION_MODE_CCW_ARC) {
 				angular_travel = angular_travel-2*M_PI;
 			}
 			// Find the radius
-			double radius = hypot(offset[meth->gc.plane_axis_0], offset[meth->gc.plane_axis_1]);
+			radius = hypot(offset[meth->gc.plane_axis_0], offset[meth->gc.plane_axis_1]);
 			// Calculate the motion along the depth axis of the helix
-			double depth = target[meth->gc.plane_axis_2]-meth->gc.position[meth->gc.plane_axis_2];
+			depth = target[meth->gc.plane_axis_2]-meth->gc.position[meth->gc.plane_axis_2];
 			// Trace the arc
-			mc_arc(theta_start, angular_travel, radius, depth, meth->gc.plane_axis_0, meth->gc.plane_axis_1, meth->gc.plane_axis_2, 
+			mc_arc(meth,theta_start, angular_travel, radius, depth, meth->gc.plane_axis_0, meth->gc.plane_axis_1, meth->gc.plane_axis_2, 
 				(meth->gc.inverse_feed_rate_mode) ? inverse_feed_rate : meth->gc.feed_rate, meth->gc.inverse_feed_rate_mode,
 				meth->gc.position);
 			// Finish off with a line to make sure we arrive exactly where we think we are
@@ -365,7 +368,7 @@ uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line) {
 // Parses the next statement and leaves the counter on the first character following
 // the statement. Returns 1 if there was a statements, 0 if end of string was reached
 // or there was an error (check state.status_code).
-static int32_t next_statement(uint8_t *letter, double *double_ptr, uint8_t *line, int32_t *char_counter) {
+static int32_t next_statement(GRBL_METH *meth,uint8_t *letter, double *double_ptr, uint8_t *line, int32_t *char_counter){
 	if (line[*char_counter] == 0) {
 		return(0); // No more statements
 	}
@@ -376,20 +379,20 @@ static int32_t next_statement(uint8_t *letter, double *double_ptr, uint8_t *line
 		return(0);
 	}
 	(*char_counter)++;
-	if (!read_double(line, char_counter, double_ptr)) {
+	if (!read_double(meth,line, char_counter, double_ptr)) {
 		return(0);
 	};
 	return(1);
 }
 
-int32_t read_double(uint8_t *line,               //!< string: line of RS274/NGC code being processed
+int32_t read_double(GRBL_METH *meth,uint8_t *line,               //!< string: line of RS274/NGC code being processed
 										 int32_t *char_counter,   //!< pointer to a counter for position on the line 
 										 double *double_ptr)  //!< pointer to double to be read                  
 {
 	uint8_t *start = line + *char_counter;
-	uint8_t *end;
+	uint8_t *end = 0;
 	
-	*double_ptr = strtod(start, &end);
+	*double_ptr = strtod(start, &end);//字符串转换为一个浮点数
 	if(end == start) { 
 		FAIL(GCSTATUS_BAD_NUMBER_FORMAT); 
 		return(0); 

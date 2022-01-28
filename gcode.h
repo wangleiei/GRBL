@@ -10,10 +10,8 @@
 #define GCSTATUS_UNSUPPORTED_STATEMENT 3
 #define GCSTATUS_FLOATING_POINT_ERROR 4
 
-// Initialize the parser
-void gc_init();
-
+void gc_init(GRBL_METH *meth);
 // Execute one block of rs275/ngc/g-code
-uint8_t gc_execute_line(uint8_t *line);
+uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line);
 
 #endif

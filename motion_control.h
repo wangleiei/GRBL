@@ -19,9 +19,9 @@ void mc_arc(GRBL_METH*meth,double theta, double angular_travel, double radius, d
 	int32_t axis_linear, double feed_rate, int32_t invert_feed_rate, double *position);
 	
 // Dwell for a couple of time units
-void mc_dwell(uint32_t milliseconds);
+void mc_dwell(GRBL_METH*meth,uint32_t milliseconds);
 
 // Send the tool home (not implemented)
-void mc_go_home();
+void mc_go_home(GRBL_METH*meth);
 
 #endif

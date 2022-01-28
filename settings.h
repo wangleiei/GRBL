@@ -14,13 +14,13 @@
 extern settings_t settings;
 
 // Initialize the configuration subsystem (load settings from EEPROM)
-void settings_init();
+void settings_init(GRBL_METH *meth);
 
 // Print current settings
-void settings_dump();
+void settings_dump(GRBL_METH *meth);
 
 // A helper method to set new settings from command line
-void settings_store_setting(int32_t parameter, double value);
+void settings_store_setting(GRBL_METH *meth,int parameter, double value);
 
 // Default settings (used when resetting eeprom-settings)
 #define MICROSTEPS 8

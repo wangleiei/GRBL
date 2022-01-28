@@ -1,8 +1,7 @@
 #include "serial_protocol.h"
 #include "gcode.h"
-extern uint8_t gc_execute_line(uint8_t *line);
+extern uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line);
 
-static void status_message(int32_t status_code);
 // 去掉line缓存区的空格，将小写字符转换成大写字符
 static void str_cg(uint8_t*buffer);
 static void status_message(GRBL_METH *meth,int32_t status_code);
@@ -42,9 +41,9 @@ void SpProcess(GRBL_METH *meth){
 }
 // 去掉line缓存区的空格，将小写字符转换成大写字符
 static void str_cg(uint8_t*buffer){
-	uint8_t buf[sizeof(meth->line)] = {0};
+	uint8_t buf[sizeof(LINE_BUFFER_SIZE)] = {0};
 	uint8_t i = 0,j = 0;
-	for(i = 0,j = 0;i < sizeof(meth->line);i ++){
+	for(i = 0,j = 0;i < sizeof(LINE_BUFFER_SIZE);i ++){
 
 		if(buffer[i] <= ' '){break;} // 去掉非显示字符
 		if((buffer[i] >= 'a') && (buffer[i] <= 'z')){//小写转大写
@@ -54,6 +53,6 @@ static void str_cg(uint8_t*buffer){
 		}
 		j++;
 	}
-	memset(buffer,0,sizeof(meth->line));
-	memcpy(buffer,buf,sizeof(meth->line));
+	memset(buffer,0,sizeof(LINE_BUFFER_SIZE));
+	memcpy(buffer,buf,sizeof(LINE_BUFFER_SIZE));
 }

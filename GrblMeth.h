@@ -1,9 +1,9 @@
 #ifndef GRBL_H
 #define GRBL_H
 
-	#ifdef __cplusplus
-	   extern "C"{ //在最顶层调用h文件使用，
-	#endif 
+#ifdef __cplusplus
+   extern "C"{ //在最顶层调用h文件使用，
+#endif 
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -11,16 +11,11 @@
 #include <math.h>
 #include <inttypes.h>
 
-#include "gcode.h"
-#include "motion_control.h"
-#include "planner.h"
-#include "serial_protocol.h"
-#include "serial_protocol.h"
-#include "spindle_control.h"
-#include "stepper.h"
 #define LINE_BUFFER_SIZE 50//一个数据包的缓存长度 单位：字节
 #define BLOCK_BUFFER_SIZE 20 //存放接下来要执行动作的环形队列,20个动作
+
 // Current global settings (persisted in EEPROM from byte 1 onwards)
+
 typedef struct {
   double steps_per_mm[3];//分别对应x,y,z轴运行1毫米需要多少个脉冲
   uint8_t microsteps;
@@ -85,16 +80,16 @@ typedef struct GRBL_METH{
 	int8_t (*ReadCmd)(uint8_t*,uint8_t maxlen);
 	void (*XAxisPwmL)(void);
 	void (*XAxisPwmH)(void);
-	void (*XAxisDir_L)(void);
-	void (*XAxisDir_H)(void);
+	void (*XAxisDirBack)(void);
+	void (*XAxisDirGo)(void);
 	void (*YAxisPwmL)(void);
 	void (*YAxisPwmH)(void);
-	void (*YAxisDir_L)(void);
-	void (*YAxisDir_H)(void);
+	void (*YAxisDirBack)(void);
+	void (*YAxisDirGo)(void);
 	void (*ZAxisPwmL)(void);
 	void (*ZAxisPwmH)(void);
-	void (*ZAxisDir_L)(void);
-	void (*ZAxisDir_H)(void);
+	void (*ZAxisDirBack)(void);
+	void (*ZAxisDirGo)(void);
 	void (*DisableTimeInter)(void);//禁止定时器中断
 	void (*EnableTimeInter)(void);//使能定时器中断，溢出中断
 	double (*SetTimeInterMs)(double timems);//设置定时器中断周期 单位ms，会返回实际中断间隔时间
@@ -103,7 +98,12 @@ typedef struct GRBL_METH{
 	// 打印日志使用
 	void (*printPgmString)(uint8_t*);
 	void (*printByte)(uint8_t);
-	
+	// 限位开关函数
+	// 1：触碰到行程开关
+	// 0：没有触碰到行程开关
+	uint8_t (*IsTouchX)(void);
+	uint8_t (*IsTouchY)(void);
+	uint8_t (*IsTouchZ)(void);
 	uint8_t line[LINE_BUFFER_SIZE];
 	uint8_t char_counter;//
 	// 关键参数设置
@@ -130,20 +130,19 @@ typedef struct GRBL_METH{
 	double trapezoid_tick_ms_counter;//用来计算时间（ms）
 }GRBL_METH;
 
-#include "stepper.h"
-#include "serial_protocol.h"
-#include "spindle_control.h"
-#include "settings.h"
+
 #include "gcode.h"
 #include "motion_control.h"
 #include "planner.h"
+#include "serial_protocol.h"
+#include "serial_protocol.h"
+#include "spindle_control.h"
+#include "stepper.h"
 
 #define X_AXIS 0
 #define Y_AXIS 1
 #define Z_AXIS 2
 #define M_PI 3.14159
-
-#define STEPPERS_ENABLE_BIT         0
 
 #define X_LIMIT_BIT          1
 #define Y_LIMIT_BIT          2
@@ -158,14 +157,8 @@ typedef struct GRBL_METH{
 // 这个代表最小定时器中断频率，1200次/分钟
 #define MINIMUM_STEPS_PER_MINUTE 1200 // The stepper subsystem will never run slower than this, exept when sleeping
 
-#define clear_vector(a) memset(a, 0, sizeof(a))
-#define max(a,b) (((a) > (b)) ? (a) : (b))
-
-
 void printInteger(int32_t n);
 void printFloat(float n);
-
-extern GRBL_METH GrblMeth;
 
 /*-----------------------------------------------------对外函数-----------------------------------------------------*/
 extern void TimeInter(GRBL_METH*meth);
@@ -174,7 +167,9 @@ extern void TimeInterComp(GRBL_METH*meth);
 extern void SpInit(GRBL_METH *meth);
 // 数据包输入处理，由这里开始处理代码，放在主循环中
 extern void SpProcess(GRBL_METH *meth);
-	#ifdef __cplusplus
-	}
-	#endif
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

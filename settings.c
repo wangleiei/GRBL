@@ -1,29 +1,16 @@
 #include "settings.h"
 
-// settings_t settings;
-
-// Version 1 outdated settings record
-typedef struct {
-  double steps_per_mm[3];
-  uint8_t microsteps;
-  uint8_t pulse_microseconds;
-  double default_feed_rate;
-  double default_seek_rate;
-  uint8_t invert_mask;
-  double mm_per_arc_segment;
-} settings_v1_t;
-
-void settings_reset() {
-  settings.steps_per_mm[X_AXIS] = DEFAULT_X_STEPS_PER_MM;
-  settings.steps_per_mm[Y_AXIS] = DEFAULT_Y_STEPS_PER_MM;
-  settings.steps_per_mm[Z_AXIS] = DEFAULT_Z_STEPS_PER_MM;
-  settings.pulse_microseconds = DEFAULT_STEP_PULSE_MICROSECONDS;
-  settings.default_feed_rate = DEFAULT_FEEDRATE;
-  settings.default_seek_rate = DEFAULT_RAPID_FEEDRATE;
-  settings.acceleration = DEFAULT_ACCELERATION;
-  settings.mm_per_arc_segment = DEFAULT_MM_PER_ARC_SEGMENT;
-  settings.invert_mask = DEFAULT_STEPPING_INVERT_MASK;
-  settings.max_jerk = DEFAULT_MAX_JERK;
+void settings_reset(GRBL_METH *meth) {
+  meth->settings.steps_per_mm[X_AXIS] = DEFAULT_X_STEPS_PER_MM;
+  meth->settings.steps_per_mm[Y_AXIS] = DEFAULT_Y_STEPS_PER_MM;
+  meth->settings.steps_per_mm[Z_AXIS] = DEFAULT_Z_STEPS_PER_MM;
+  meth->settings.pulse_microseconds = DEFAULT_STEP_PULSE_MICROSECONDS;
+  meth->settings.default_feed_rate = DEFAULT_FEEDRATE;
+  meth->settings.default_seek_rate = DEFAULT_RAPID_FEEDRATE;
+  meth->settings.acceleration = DEFAULT_ACCELERATION;
+  meth->settings.mm_per_arc_segment = DEFAULT_MM_PER_ARC_SEGMENT;
+  meth->settings.invert_mask = DEFAULT_STEPPING_INVERT_MASK;
+  meth->settings.max_jerk = DEFAULT_MAX_JERK;
 }
 
 void settings_dump(GRBL_METH *meth) {
@@ -70,7 +57,7 @@ int read_settings() {
 }
 
 // A helper method to set settings from command line
-void settings_store_setting(GRBL_METH *meth,int parameter, double value) {
+void settings_store_setting(GRBL_METH *meth,int parameter, double value){
   switch(parameter) {
 		case 0: 
 		case 1: 
@@ -98,20 +85,20 @@ void settings_store_setting(GRBL_METH *meth,int parameter, double value) {
 			meth->settings.max_jerk = fabs(value); 
 		break;
 		default: 
-			GrblMeth.printPgmString("Unknown parameter\r\n");
+			meth->printPgmString("Unknown parameter\r\n");
 		return;
 	}
 	meth->printPgmString("Stored new setting\r\n");
 }
 
 // Initialize the config subsystem
-void settings_init() {
+void settings_init(GRBL_METH *meth) {
   // if(read_settings()) {
   //   meth->printPgmString("'$' to dump current settings\r\n");
   // } else {
   meth->printPgmString("Warning: Failed to read EEPROM settings. Using defaults.\r\n");
-  settings_reset();
+  settings_reset(meth);
   // write_settings();
-  settings_dump();
+  settings_dump(meth);
   // }
 }
