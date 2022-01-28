@@ -9,7 +9,7 @@
 	Basic definitions:
 
 		Speed[s_, a_, t_] := s + (a*t) 
-		Travel[s_, a_, t_] := Integrate[Speed[s, a, t], t]
+		Travel[s_, a_, t_] := Integrate[Speed[s, a, t], t],求速度对时间的积分
 
 	Distance to reach a specific speed with a constant acceleration:
 
@@ -31,8 +31,6 @@
 
 		IntersectionDistance[s1_, s2_, a_, d_] := (2 a d - s1^2 + s2^2)/(4 a)
 */
-																																																						
-
 #include "planner.h"
 static void calculate_trapezoid_for_block(block_t *block, double entry_factor, double exit_factor);
 static double estimate_acceleration_distance(double initial_rate, double target_rate, double acceleration);
@@ -118,12 +116,10 @@ static void calculate_trapezoid_for_block(block_t *block, double entry_factor, d
 
 // Calculates the maximum allowable speed at this point when you must be able to reach target_velocity using the 
 // acceleration within the allotted distance.
-double max_allowable_speed(double acceleration, double target_velocity, double distance) {
-	return(
-		sqrt(target_velocity*target_velocity-2*acceleration*60*60*distance)
-	);
+double max_allowable_speed(double acceleration, double target_velocity, double distance) {//返回值单位 应该是mm/min
+	return(sqrt(target_velocity*target_velocity-2*acceleration*60*60*distance));
 }
-
+// 该函数指的是在两个区块之间速度的变化,是通过计算两个动作区块之间的各轴速度得到，返回结果的单位是（mm/minute）
 // "Junction jerk" in this context is the immediate change in speed at the junction of two blocks.
 // This method will calculate the junction jerk as the euclidean distance between the nominal 
 // velocities of the respective blocks.
@@ -153,10 +149,11 @@ void planner_reverse_pass_kernel(GRBL_METH *meth,block_t *previous, block_t *cur
 		exit_factor = factor_for_safe_speed(meth,current);
 	}
 	
-	// Calculate the entry_factor for the current block. 
+	// 计算当前动作区块的进入速度因子，由前动作区块得到
 	if (previous) {
 		// Reduce speed so that junction_jerk is within the maximum allowed
-		jerk = junction_jerk(previous, current);
+		// 该函数指的是在两个区块之间速度的变化,是通过计算两个动作区块之间的各轴速度得到，返回结果的单位是（mm/minute）
+		jerk = junction_jerk(previous, current);//这个词代表节点的加加速度？，
 		if (jerk > meth->settings.max_jerk) {
 			entry_factor = (meth->settings.max_jerk/jerk);
 		} 
@@ -180,7 +177,7 @@ void planner_reverse_pass_kernel(GRBL_METH *meth,block_t *previous, block_t *cur
 // planner_recalculate() needs to go over the current plan twice. Once in reverse and once forward. This 
 // implements the reverse pass.
 void planner_reverse_pass(GRBL_METH *meth) {
-	auto int8_t block_index = meth->block_buffer_head;
+	int8_t block_index = meth->block_buffer_head;
 	block_t *block[3] = {NULL, NULL, NULL};
 	while(block_index != meth->block_buffer_tail) {    
 		block_index--;

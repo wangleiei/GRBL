@@ -59,9 +59,9 @@ typedef struct {
 	double speed_x, speed_y, speed_z;   // Nominal mm/minute for each axis
 	double nominal_speed;               // 该动作区块执行动作时候的额定速度
 	double millimeters;                 // The total travel of this block in mm
-	double entry_factor;                // The factor representing the change in speed at the start of this trapezoid.
-																			// (The end of the curren speed trapezoid is defined by the entry_factor of the
-																			// next block)
+	double entry_factor;                // （进入速度系数）The factor representing the change in speed at the start of this trapezoid.
+										// (The end of the curren speed trapezoid is defined by the entry_factor of the
+										// next block)
 	
 	// Settings for the trapezoid generator
 	uint32_t initial_rate;              // The jerk-adjusted step rate at start of block  
@@ -146,10 +146,6 @@ typedef struct GRBL_METH{
 #define Y_AXIS 1
 #define Z_AXIS 2
 #define M_PI 3.14159
-
-#define X_LIMIT_BIT          1
-#define Y_LIMIT_BIT          2
-#define Z_LIMIT_BIT          3
 
 // The temporal resolution of the acceleration management subsystem. Higher number
 // give smoother acceleration but may impact performance

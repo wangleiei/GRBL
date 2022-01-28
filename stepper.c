@@ -1,10 +1,6 @@
-
-
-
 #include "stepper.h"
 #include "planner.h"
 extern void plan_discard_current_block(GRBL_METH*meth);
-#define LIMIT_MASK ((1<<X_LIMIT_BIT)|(1<<Y_LIMIT_BIT)|(1<<Z_LIMIT_BIT)) // All limit bits
 
 // #define TICKS_PER_MICROSECOND 1//(F_CPU/1000000) //F_CPU的值是以hz为单位，该宏代表1us有多少运行周期
 
