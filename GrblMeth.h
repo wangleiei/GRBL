@@ -104,6 +104,10 @@ typedef struct GRBL_METH{
 	uint8_t (*IsTouchX)(void);
 	uint8_t (*IsTouchY)(void);
 	uint8_t (*IsTouchZ)(void);
+	// 主轴雕刻使用
+	void(*spindle_run)(int32_t direction, uint32_t rpm);
+	void(*spindle_stop)	(void);
+
 	uint8_t line[LINE_BUFFER_SIZE];
 	uint8_t char_counter;//
 	// 关键参数设置
@@ -136,7 +140,6 @@ typedef struct GRBL_METH{
 #include "planner.h"
 #include "serial_protocol.h"
 #include "serial_protocol.h"
-#include "spindle_control.h"
 #include "stepper.h"
 
 #define X_AXIS 0

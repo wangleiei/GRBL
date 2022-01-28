@@ -206,9 +206,9 @@ uint8_t gc_execute_line(GRBL_METH *meth,uint8_t *line){
 		
 	// Update spindle state
 	if (meth->gc.spindle_direction) {
-		spindle_run(meth->gc.spindle_direction, meth->gc.spindle_speed);
+		meth->spindle_run(meth->gc.spindle_direction, meth->gc.spindle_speed);
 	} else {
-		spindle_stop();
+		meth->spindle_stop();
 	}
 	
 	// Perform any physical actions
