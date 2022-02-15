@@ -19,7 +19,7 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 void plan_discard_current_block(GRBL_METH*meth);
 
 // 得到最近的动作区块，如果没有返回null
-block_t *plan_get_current_block(GRBL_METH*meth) ;
+block_t *plan_get_current_block(GRBL_METH*meth);
 
 // Enables or disables acceleration-management for upcoming blocks
 void plan_set_acceleration_manager_enabled(GRBL_METH*meth,int32_t enabled);

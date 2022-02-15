@@ -26,7 +26,6 @@ static void set_step_events_per_minute(GRBL_METH*meth,uint32_t steps_per_minute)
 //  The slope of acceleration is always +/- block->rate_delta and is applied at a constant rate by trapezoid_generator_tick()
 //  that is called ACCELERATION_TICKS_PER_SECOND times per second.
 
-void set_step_events_per_minute(GRBL_METH*meth,uint32_t steps_per_minute);
 
 // Initializes the trapezoid generator from the current block. Called whenever a new 
 // block begins.
@@ -70,7 +69,7 @@ void trapezoid_generator_tick(GRBL_METH*meth) {
 // grbl驱动中断，由 config_step_timer 函数控制中断频率，从动作区块缓冲中弹出动作，然后产生步进电机管脚脉冲
 // 这个函数中没有对限位开关处理，
 // 还和一个管脚复位中断搭配（Stepper Port Reset Interrupt），借此来产生完整的脉冲
-void TimeInter(GRBL_METH*meth) {
+void GrblTimeInter(GRBL_METH*meth){
 	uint8_t blockusedoverflag = 0;
 	// If there is no current block, attempt to pop one from the buffer
 	if (meth->current_block == NULL) {
@@ -82,12 +81,15 @@ void TimeInter(GRBL_METH*meth) {
 			meth->st_counter_y = meth->st_counter_x;
 			meth->st_counter_z = meth->st_counter_x;
 			meth->step_events_completed = 0;
+			meth->LaserControl(meth->current_block->LaserPowerPercent);
 		} else {
 			meth->DisableTimeInter();
 		}
 	} 
-
 	if (meth->current_block != NULL) {//xyz轴脉冲驱动是分开的，可能会对路径有影响,如果是同时操作就没有影响
+		meth->current_block->dir_X();
+		meth->current_block->dir_Y();
+		meth->current_block->dir_Z();
 		meth->st_counter_x += meth->current_block->steps_x;//10
 		if ((meth->st_counter_x > 0) && (0 == meth->IsTouchX())) {
 			meth->XAxisPwmH();
@@ -126,12 +128,12 @@ void TimeInter(GRBL_METH*meth) {
 	}
 }
 // io拉低的中断，
-void TimeInterComp(GRBL_METH*meth){
+void GrblTimeInterComp(GRBL_METH*meth){
 	meth->XAxisPwmL();
 	meth->YAxisPwmL();
 	meth->ZAxisPwmL();
 }
-// Block until all buffered steps are executed
+// 只有所有动作区块的值都执行完才退出函数
 void st_synchronize(GRBL_METH*meth){
 	while(plan_get_current_block(meth)) { ; }    
 }
@@ -149,7 +151,7 @@ static void set_step_events_per_minute(GRBL_METH*meth,uint32_t steps_per_minute)
 	// meth->ms_per_step_event = config_step_timer((TICKS_PER_MICROSECOND*1000000*60)/steps_per_minute);
 	// 每分钟有多少tick/每分钟有多少步 得到 每一步有多少tick
 
-	meth->ms_per_step_event = meth->SetTimeInterMs(steps_per_minute/60);
+	meth->ms_per_step_event = meth->SetTimeInterMs(1000.0/(steps_per_minute/60.0));
 }
 void st_go_home(GRBL_METH*meth){
 	// meth->IsCheckLimitFlag = 0;

@@ -37,15 +37,15 @@ static double estimate_acceleration_distance(double initial_rate, double target_
 static void planner_forward_pass(GRBL_METH*meth);
 static void planner_recalculate_trapezoids(GRBL_METH*meth);
 static void planner_recalculate(GRBL_METH*meth);
-
+static void planner_reverse_pass(GRBL_METH *meth);
 #define max(a,b) ( ( (a) > (b) ) ? (a) : (b) )
 
 // Calculates the distance (not time) it takes to accelerate from initial_rate to target_rate using the 
 // given acceleration:
+// 计算公式由s = (Vt*Vt - V0*V0)/2a得到，不过这里的速度单位是step/min，加速度单位是step/(min*min)
 static double estimate_acceleration_distance(double initial_rate, double target_rate, double acceleration){
 	return(
-		(target_rate*target_rate-initial_rate*initial_rate)/
-		(2L*acceleration)
+		(target_rate*target_rate-initial_rate*initial_rate)/(2L*acceleration)
 	);
 }
 
@@ -89,14 +89,13 @@ static void calculate_trapezoid_for_block(block_t *block, double entry_factor, d
 	int32_t accelerate_steps = 0;	
 	int32_t decelerate_steps = 0;
 	int32_t plateau_steps = 0;
-	block->initial_rate = ceil(block->nominal_rate*entry_factor);
-	block->final_rate = ceil(block->nominal_rate*exit_factor);
+	block->initial_rate = ceil(block->nominal_rate*entry_factor);//steps/minute
+	block->final_rate = ceil(block->nominal_rate*exit_factor);//steps/minute
+	// 代表每分钟进行多次速度（或者是加速度）计算
 	acceleration_per_minute = block->rate_delta*1000.0*60.0/ACCELERATION_TICKS_MS_PER_MS;//steps/minute
 	// acceleration_per_minute = block->rate_delta*ACCELERATION_TICKS_PER_SECOND*60.0;//steps/minute
-	accelerate_steps = 
-		ceil(estimate_acceleration_distance(block->initial_rate, block->nominal_rate, acceleration_per_minute));
-	decelerate_steps = 
-		floor(estimate_acceleration_distance(block->nominal_rate, block->final_rate, -acceleration_per_minute));
+	accelerate_steps = ceil(estimate_acceleration_distance(block->initial_rate, block->nominal_rate, acceleration_per_minute));
+	decelerate_steps = floor(estimate_acceleration_distance(block->nominal_rate, block->final_rate, -acceleration_per_minute));
 
 	// Calculate the size of Plateau of Nominal Rate. 
 	plateau_steps = block->step_event_count-accelerate_steps-decelerate_steps;
@@ -104,7 +103,7 @@ static void calculate_trapezoid_for_block(block_t *block, double entry_factor, d
 	// Is the Plateau of Nominal Rate smaller than nothing? That means no cruising, and we will
 	// have to use intersection_distance() to calculate when to abort acceleration and start braking 
 	// in order to reach the final_rate exactly at the end of this block.
-	if (plateau_steps < 0) {  
+	if (plateau_steps < 0) {  //就是为了保证动作区块的最终速度能和设定一样
 		accelerate_steps = ceil(
 			intersection_distance(block->initial_rate, block->final_rate, acceleration_per_minute, block->step_event_count));
 		plateau_steps = 0;
@@ -113,7 +112,8 @@ static void calculate_trapezoid_for_block(block_t *block, double entry_factor, d
 	block->accelerate_until = accelerate_steps;
 	block->decelerate_after = accelerate_steps+plateau_steps;
 }                    
-
+// 通过最终速度，加速度，距离，得到初始速度，由公式V0*V0 = Vt*Vt - 2AS
+// 我猜这里的加速度a是mm/(s*s)为单位，在公式里加入60*60，得到mm/(min*min)
 // Calculates the maximum allowable speed at this point when you must be able to reach target_velocity using the 
 // acceleration within the allotted distance.
 double max_allowable_speed(double acceleration, double target_velocity, double distance) {//返回值单位 应该是mm/min
@@ -155,10 +155,12 @@ void planner_reverse_pass_kernel(GRBL_METH *meth,block_t *previous, block_t *cur
 		// 该函数指的是在两个区块之间速度的变化,是通过计算两个动作区块之间的各轴速度得到，返回结果的单位是（mm/minute）
 		jerk = junction_jerk(previous, current);//这个词代表节点的加加速度？，
 		if (jerk > meth->settings.max_jerk) {
-			entry_factor = (meth->settings.max_jerk/jerk);
+			entry_factor = (meth->settings.max_jerk/jerk);//在1以内
 		} 
 		// If the required deceleration across the block is too rapid, reduce the entry_factor accordingly.
 		if (entry_factor > exit_factor) {
+			// 得到初始速度V0，单位是（mm/minute）
+			// current->nominal_speed 是最终速度Vt
 			max_entry_speed = max_allowable_speed(-meth->settings.acceleration,current->nominal_speed*exit_factor, 
 				current->millimeters);
 			max_entry_factor = max_entry_speed/current->nominal_speed;
@@ -176,7 +178,7 @@ void planner_reverse_pass_kernel(GRBL_METH *meth,block_t *previous, block_t *cur
 
 // planner_recalculate() needs to go over the current plan twice. Once in reverse and once forward. This 
 // implements the reverse pass.
-void planner_reverse_pass(GRBL_METH *meth) {
+static void planner_reverse_pass(GRBL_METH *meth){
 	int8_t block_index = meth->block_buffer_head;
 	block_t *block[3] = {NULL, NULL, NULL};
 	while(block_index != meth->block_buffer_tail) {    
@@ -187,7 +189,7 @@ void planner_reverse_pass(GRBL_METH *meth) {
 		block[2]= block[1];
 		block[1]= block[0];
 		block[0] = &(meth->block_buffer[block_index]);
-		planner_reverse_pass_kernel(meth,block[0], block[1], block[2]);
+		planner_reverse_pass_kernel(meth,block[0], block[1], block[2]);//设置block[1]的进入速度因子
 	}
 	planner_reverse_pass_kernel(meth,NULL, block[0], block[1]);
 }
@@ -230,6 +232,7 @@ static void planner_forward_pass(GRBL_METH*meth){
 // Recalculates the trapezoid speed profiles for all blocks in the plan according to the 
 // entry_factor for each junction. Must be called by planner_recalculate() after 
 // updating the blocks.
+// 计算动作区块队列中所有区块的加速/减速对应的step序号，该序号用来标记到达步数时候停止加速/减速
 static void planner_recalculate_trapezoids(GRBL_METH*meth){
 	int8_t block_index = meth->block_buffer_tail;
 	block_t *current;
@@ -248,9 +251,8 @@ static void planner_recalculate_trapezoids(GRBL_METH*meth){
 
 // Recalculates the motion plan according to the following 算法:
 //
-//   1. Go over every block in reverse order and calculate a junction speed reduction (i.e. block_t.entry_factor) 
-//      so that:
-//     a. The junction jerk is within the set limit
+//   1. 以倒序搜索方式计算每个节点的速度
+//     a. 为了能将每个节点速度控制在限制范围内
 //     b. No speed reduction within one block requires faster deceleration than the one, true constant 
 //        acceleration.
 //   2. Go over every block in chronological order and dial down junction speed reduction values if 
@@ -264,9 +266,9 @@ static void planner_recalculate_trapezoids(GRBL_METH*meth){
 //   3. Recalculate trapezoids for all blocks.
 
 static void planner_recalculate(GRBL_METH*meth){
-	planner_reverse_pass(meth);
+	planner_reverse_pass(meth);//以倒序排列方式设置速度进入因子
 	planner_forward_pass(meth);
-	planner_recalculate_trapezoids(meth);
+	planner_recalculate_trapezoids(meth);//计算动作区块队列中所有区块的加速/减速对应的step序号，该序号用来标记到达步数时候停止加速/减速
 }
 
 void plan_init(GRBL_METH*meth){
@@ -292,7 +294,8 @@ void plan_discard_current_block(GRBL_METH*meth) {
 		meth->block_buffer_tail = (meth->block_buffer_tail + 1) % BLOCK_BUFFER_SIZE;  
 	}
 }
-
+// 得到当前的接下来要执行的区块指针，
+// 如果没有动作，返回0
 block_t *plan_get_current_block(GRBL_METH*meth) {
 	if (meth->block_buffer_head == meth->block_buffer_tail) {
 		return(NULL); 
@@ -304,9 +307,10 @@ block_t *plan_get_current_block(GRBL_METH*meth) {
 // mm. Microseconds specify how many microseconds the move should take to perform. To aid acceleration
 // calculation the caller must also provide the physical length of the line in millimeters.
 // feed_rate单位是 毫米/秒
-// 大概功能是得到一条线的执行到X,Y,Z位置需要的步数
+// 大概功能是得到一条线的执行到X,Y,Z位置需要的步数，得到电机运行一条线段时候需要的参数
 // x，y，z:单位毫米
-
+// uint32_t microseconds = 0;
+double feed_rate_g = 0.0;
 void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_rate, int32_t invert_feed_rate) {
 	// The target position of the tool in absolute steps
 	
@@ -321,16 +325,16 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	double travel_per_step = 0.0;
 	double safe_speed_factor = 0.0;
 	block_t *block = 0;
-
-	target[X_AXIS] = lround(x*meth->settings.steps_per_mm[X_AXIS]);
-	target[Y_AXIS] = lround(y*meth->settings.steps_per_mm[Y_AXIS]);
-	target[Z_AXIS] = lround(z*meth->settings.steps_per_mm[Z_AXIS]);  //浮点约等整数   
+microseconds = 0;
+	target[X_AXIS] = lround(x * (meth->settings.steps_per_mm[X_AXIS]));
+	target[Y_AXIS] = lround(y * (meth->settings.steps_per_mm[Y_AXIS]));
+	target[Z_AXIS] = lround(z * (meth->settings.steps_per_mm[Z_AXIS]));  //浮点约等整数   
 	
-	// Calculate the buffer head after we push this byte
-	next_buffer_head = (meth->block_buffer_head + 1) % BLOCK_BUFFER_SIZE;	
-	// If the buffer is full: good! That means we are well ahead of the robot. 
-	// Rest here until there is room in the buffer.
-	while(meth->block_buffer_tail == next_buffer_head) { ; }//这是干啥用?
+	// head代表的是未来打算要执行的动作序列序号的后一位，该区块没有动作
+	next_buffer_head = (meth->block_buffer_head + 1) % BLOCK_BUFFER_SIZE;
+	// 区块如果满，说明任务处理量大，当启用加速管理时候，比较有利。
+	// 当值相等时候，说明未来要执行的动作区块已经饱和，无法处理更多的动作
+	while(meth->block_buffer_tail == next_buffer_head) {;}//tail会在定时器中断中增加，增加到下一个准备执行的区块序号
 	// Prepare to set up new block
 	block = &(meth->block_buffer[meth->block_buffer_head]);
 	// Number of steps for each axis
@@ -348,12 +352,12 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	
 	
 	
-	if (!invert_feed_rate) {//计算最长完成时间（毫秒）
-		microseconds = lround((block->millimeters/feed_rate)*1000000);
+	if (!invert_feed_rate) {//计算最长完成时间（微秒）
+		microseconds = lround((block->millimeters/feed_rate)*1000000);//feed_rate的单位是毫米/秒
 	} else {
 		microseconds = lround(60000000.0/feed_rate);
 	}
-
+	// feed_rate_g = feed_rate;
 	// 计算每轴上的速度（mm/minute）
 	multiplier = 60.0*1000000.0/microseconds;//得到1/分钟
 	block->speed_x = delta_x_mm * multiplier;
@@ -387,28 +391,38 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	}
 	
 	// 得到方向
-	if (target[X_AXIS] < meth->position[X_AXIS]) {
-		meth->XAxisDirGo();
+	if (meth->position[X_AXIS] < target[X_AXIS]) {
+		block->dir_X = meth->XAxisDirGo;
 	}else{
-		meth->XAxisDirBack();
+		block->dir_X = meth->XAxisDirBack;
 	}
-	if (target[Y_AXIS] < meth->position[Y_AXIS]) {
-		meth->YAxisDirGo();
+	if (meth->position[Y_AXIS] < target[Y_AXIS]) {
+		block->dir_Y = meth->YAxisDirGo;
 	}else{
-		meth->YAxisDirBack();
+		block->dir_Y = meth->YAxisDirBack;
 	}
-	if (target[Z_AXIS] < meth->position[Z_AXIS]) {
-		meth->ZAxisDirGo();
+	if (meth->position[Z_AXIS] < target[Z_AXIS]) {
+		block->dir_Z = meth->ZAxisDirGo;
 	}else{
-		meth->ZAxisDirBack();
+		block->dir_Z = meth->ZAxisDirBack;
 	}
 	
+	// 在激光模式下，要为每一个动作区块添加激光标志，用于动作区块控制激光，必须放在处理G代码动作之后，因为动作区块序号会有更新
+	if(meth->GrblMode == LaserCutMode){
+		if(meth->LaserOpenFlag == 1){
+			block->LaserPowerPercent = meth->gc.laserpower;
+		}else if(0 == meth->LaserOpenFlag){
+			block->LaserPowerPercent = 0;
+		}
+	}
+
 	// Move buffer head
 	meth->block_buffer_head = next_buffer_head;    
 	// Update position 
 	memcpy(meth->position, target, sizeof(target)); // meth->position[] = target[]
 	
-	if (meth->acceleration_manager_enabled) { planner_recalculate(meth); }  
+	if(meth->acceleration_manager_enabled) { 
+		planner_recalculate(meth); 
+	}  
 	meth->EnableTimeInter();
 }
-
