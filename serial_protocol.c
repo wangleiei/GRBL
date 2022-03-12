@@ -141,6 +141,7 @@ static void str_cg(uint8_t*buffer){
 	memcpy(buffer,buf,LINE_BUFFER_SIZE);
 }
 
+
 // 用于判断grbl的动作是否执行完成
 // 2:没有执行动作(都没有开始)
 // 1:执行完成
@@ -151,7 +152,7 @@ uint8_t GrblActionComplete(GRBL_METH*meth){
 	if((meth->GCodeEndFlag == 2) && (meth->block_buffer_head == meth->block_buffer_tail)){
 		return 1;
 	}
-	if(meth->gc.status_code == GC_CodeStart){
+	if((meth->gc.status_code == GC_CodeStart) || (meth->gc.status_code == GC_TOOBUSY)){
 		return 0;
 	}
 	return 2;
