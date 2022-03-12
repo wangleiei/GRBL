@@ -310,7 +310,6 @@ block_t *plan_get_current_block(GRBL_METH*meth) {
 // 大概功能是得到一条线的执行到X,Y,Z位置需要的步数，得到电机运行一条线段时候需要的参数
 // x，y，z:单位毫米
 // uint32_t microseconds = 0;
-double feed_rate_g = 0.0;
 void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_rate, int32_t invert_feed_rate) {
 	// The target position of the tool in absolute steps
 	
@@ -325,7 +324,6 @@ void plan_buffer_line(GRBL_METH*meth,double x, double y, double z, double feed_r
 	double travel_per_step = 0.0;
 	double safe_speed_factor = 0.0;
 	block_t *block = 0;
-microseconds = 0;
 	target[X_AXIS] = lround(x * (meth->settings.steps_per_mm[X_AXIS]));
 	target[Y_AXIS] = lround(y * (meth->settings.steps_per_mm[Y_AXIS]));
 	target[Z_AXIS] = lround(z * (meth->settings.steps_per_mm[Z_AXIS]));  //浮点约等整数   
@@ -334,7 +332,9 @@ microseconds = 0;
 	next_buffer_head = (meth->block_buffer_head + 1) % BLOCK_BUFFER_SIZE;
 	// 区块如果满，说明任务处理量大，当启用加速管理时候，比较有利。
 	// 当值相等时候，说明未来要执行的动作区块已经饱和，无法处理更多的动作
-	while(meth->block_buffer_tail == next_buffer_head) {;}//tail会在定时器中断中增加，增加到下一个准备执行的区块序号
+	while(meth->block_buffer_tail == next_buffer_head) {
+		;
+	}//tail会在定时器中断中增加，增加到下一个准备执行的区块序号
 	// Prepare to set up new block
 	block = &(meth->block_buffer[meth->block_buffer_head]);
 	// Number of steps for each axis
@@ -357,7 +357,6 @@ microseconds = 0;
 	} else {
 		microseconds = lround(60000000.0/feed_rate);
 	}
-	// feed_rate_g = feed_rate;
 	// 计算每轴上的速度（mm/minute）
 	multiplier = 60.0*1000000.0/microseconds;//得到1/分钟
 	block->speed_x = delta_x_mm * multiplier;

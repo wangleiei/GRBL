@@ -15,7 +15,9 @@
 // positive angular_travel means clockwise, negative means counterclockwise. Radius == the radius of the
 // circle in millimeters. axis_1 and axis_2 selects the circle plane in tool space. Stick the remaining
 // axis in axis_l which will be the axis for linear travel if you are tracing a helical motion.
-void mc_arc(GRBL_METH*meth,double theta, double angular_travel, double radius, double linear_travel, int32_t axis_1, int32_t axis_2, 
+// 0:正常执行一个命令，动作区块不会被填满
+// 1：执行一个命令，动作区块会被填满，（再填一次就会被填满，然后在plan_buffer_line 中失去响应）
+int32_t mc_arc(GRBL_METH*meth,double theta, double angular_travel, double radius, double linear_travel, int32_t axis_1, int32_t axis_2, 
 	int32_t axis_linear, double feed_rate, int32_t invert_feed_rate, double *position);
 
 // Dwell for a couple of time units

@@ -145,13 +145,10 @@ void st_synchronize(GRBL_METH*meth){
 // }
 // 设置每分钟有多少个定时器中断？，是的，然后会在中断中产生一次步进电机的脉冲输出
 static void set_step_events_per_minute(GRBL_METH*meth,uint32_t steps_per_minute) {
-	if (steps_per_minute < MINIMUM_STEPS_PER_MINUTE) {
-		steps_per_minute = MINIMUM_STEPS_PER_MINUTE; 
-	}
 	// meth->ms_per_step_event = config_step_timer((TICKS_PER_MICROSECOND*1000000*60)/steps_per_minute);
 	// 每分钟有多少tick/每分钟有多少步 得到 每一步有多少tick
 
-	meth->ms_per_step_event = meth->SetTimeInterMs(1000.0/(steps_per_minute/60.0));
+	meth->ms_per_step_event = meth->SetTimeInterMs(60000.0/steps_per_minute);
 }
 void st_go_home(GRBL_METH*meth){
 	// meth->IsCheckLimitFlag = 0;

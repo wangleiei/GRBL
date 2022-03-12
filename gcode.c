@@ -415,20 +415,25 @@ GC_STA gc_execute_line(GRBL_METH *meth,uint8_t *line){
 					radius = hypot(offset[meth->gc.plane_axis_0], offset[meth->gc.plane_axis_1]);
 					// Calculate the motion along the depth axis of the helix
 					depth = target[meth->gc.plane_axis_2]-meth->gc.position[meth->gc.plane_axis_2];
-					// Trace the arc
-					mc_arc(meth,
-						theta_start,
-						angular_travel,
-						radius,
-						depth,
-						meth->gc.plane_axis_0,
-						meth->gc.plane_axis_1,
-						meth->gc.plane_axis_2,
-						// (meth->gc.inverse_feed_rate_mode) ? inverse_feed_rate : meth->gc.feed_rate,
-						meth->gc.feed_rate,
-						// meth->gc.inverse_feed_rate_mode,
-						0,
-						meth->gc.position);
+					// Trace the arc，如果画一个圆时候，动作区块马上被占满，这里会退出 GC_TOOBUSY
+					if(1 == mc_arc(meth,
+												theta_start,
+												angular_travel,
+												radius,
+												depth,
+												meth->gc.plane_axis_0,
+												meth->gc.plane_axis_1,
+												meth->gc.plane_axis_2,
+												// (meth->gc.inverse_feed_rate_mode) ? inverse_feed_rate : meth->gc.feed_rate,
+												meth->gc.feed_rate,
+												// meth->gc.inverse_feed_rate_mode,
+												0,
+												meth->gc.position)){
+						
+						meth->gc.status_code = GC_TOOBUSY;
+						break;
+					}
+					
 					// Finish off with a line to make sure we arrive exactly where we think we are
 					plan_buffer_line(meth,target[X_AXIS],
 						target[Y_AXIS],
@@ -540,6 +545,7 @@ void GrblPause(GRBL_METH *meth){
 	meth->DisableTimeInter();
 	if(meth->GrblMode == LaserCutMode){
 		meth->LaserControl(0);
+		meth->DisableAirPumb();
 	}
 	meth->SendString("grbl模块暂停\r\n");
 }
@@ -555,11 +561,15 @@ void GrblStop(GRBL_METH *meth){
 	meth->DisableTimeInter();
 	if(meth->GrblMode == LaserCutMode){
 		meth->LaserControl(0);
+		meth->DisableAirPumb();
 	}else if(meth->GrblMode == CNCMode){
 		meth->spindle_stop();
 	}
 	for(i = 0;i < BLOCK_BUFFER_SIZE;i ++){
 		memset((uint8_t*)&(meth->block_buffer[i]),0,sizeof(meth->block_buffer[0]));
+	}
+	for(i = 0;i < sizeof(meth->position)/sizeof(meth->position[0]);i ++){
+		meth->position[i] = 0;
 	}
  	meth->block_buffer_head = meth->block_buffer_tail = 0;
  	meth->current_block = 0;

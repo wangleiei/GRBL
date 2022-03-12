@@ -22,7 +22,9 @@ typedef enum {GC_Ok = 0,
 			GC_FloatingPointError,
 			GC_CodeStart,//找到开头的'%'
 			GC_CodeEnd,
-			GC_CodeEndWarn//g代码结尾符号 '%'过多，文件应该只有两个一个开头，一个结尾
+			GC_CodeEndWarn,//g代码结尾符号 '%'过多，文件应该只有两个一个开头，一个结尾
+			GC_TOOBUSY,//grbl安排一个动作时候，发生占用动作区块太多，以至于用完所有的动作区块都无法安排好这个动作，需要在
+
 			}GC_STA;
 
 typedef struct {
@@ -165,6 +167,9 @@ typedef struct GRBL_METH{
 	// 激光雕刻使用
 	void(*LaserControl)(uint8_t percent);//0-100的功率控制。0：是关闭意思
 	uint8_t LaserOpenFlag;//0:激光关闭，1：激光开启
+	// 吹气泵控制
+	void (*DisableAirPumb)();//禁止空气泵
+	void (*EnableAirPumb)();//启动空气泵
 }GRBL_METH;
 
 #include "gcode.h"
@@ -185,8 +190,6 @@ typedef struct GRBL_METH{
 // #define ACCELERATION_TICKS_PER_SECOND 40L
 // 代表每隔多久毫秒计算一次加速度，值低就更加加速过程更加平滑，但是也更可能影响性能
 #define ACCELERATION_TICKS_MS_PER_MS 25.0
-// 这个代表最小定时器中断频率，1200次/分钟
-#define MINIMUM_STEPS_PER_MINUTE 1200 // The stepper subsystem will never run slower than this, exept when sleeping
 
 /*----------------------------------对外函数接口开始----------------------------------*/
 // 将该函数放入定时器中断中，用于驱动步进电机io，速度增减，动作区块弹出等等，
@@ -242,6 +245,9 @@ extern void GrblInit(GRBL_METH*meth,
 	// 主轴雕刻使用
 	void(*spindle_run)(int32_t direction, uint32_t rpm),
 	void(*spindle_stop)	(void),
+	// 吹气泵控制
+	void (*DisableAirPumb)(),//禁止空气泵
+	void (*EnableAirPumb)(),//启动空气泵
 	// 0-100的功率控制。0：是关闭意思
 	void(*LaserControl)(uint8_t percent),
 	// 0:激光模式
@@ -260,6 +266,13 @@ extern void GrblStop(GRBL_METH *meth);
 
 // 打印grbl相关参数
 extern void GrblPrintSettings(GRBL_METH *meth);
+
+// 用于判断grbl的动作是否执行完成
+// 2:没有执行动作(都没有开始)
+// 1:执行完成
+// 0：已经开始执行,但是未完成
+extern uint8_t GrblActionComplete(GRBL_METH*meth);
+
 /*----------------------------------对外函数接口结束----------------------------------*/
 
 // G代码在线预览，还能提醒这个gcode是哪一个图的
@@ -269,7 +282,7 @@ extern void GrblPrintSettings(GRBL_METH *meth);
 // http://linuxcnc.org/docs/2.6/html/gcode/m-code.html#sec:M3-M4-M5
 // http://linuxcnc.org/docs/2.6/html/gcode/gcode.html#sec:G17-G18-G19
 
-// 新增激光模式，功率是由M10代码控制，是ABVIEWER软件上生成的
+// 新增激光模式，功率是由M10代码控制，是 ABVIEWER 软件上生成的
 // 格式：M10 Q20
 // ABVIEW会添加一个M11指令，不知道是干啥的
 
@@ -284,6 +297,13 @@ extern void GrblPrintSettings(GRBL_METH *meth);
 // 我发现GRBL的主轴控制部分与xyz轴控制部分是分离的，就有可能造成主轴与Xyz轴不同步
 
 // 打算将寻线速度改成参数配置，切割速度由G代码中F代码控制
+
+// Grbl模块是按照 ABVIEW生成的文件执行,这个文件开头和结尾有个有一个 '%'
+// 模块中用来标记g代码开始与结束,
+
+// 如果inventor生成 inventor版本的dwg，经过 ABVIEWER 转换得到g代码不带有 旋转 I 指令，这个可以
+// 而cad版本的dwg则会有 -I 指令，这个I指令会导致 一直在grbl模块中循环，极其有可能
+// 要么找到不带 -I 指令的g代码，要么grbl模块对I指令特殊处理
 #ifdef __cplusplus
 }
 #endif

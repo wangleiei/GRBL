@@ -47,6 +47,9 @@ void GrblInit(GRBL_METH*meth,
 	// 主轴雕刻使用
 	void(*spindle_run)(int32_t direction, uint32_t rpm),
 	void(*spindle_stop)	(void),
+	// 吹气泵控制
+	void (*DisableAirPumb)(),//禁止空气泵
+	void (*EnableAirPumb)(),//启动空气泵
 	// 0-100的功率控制。0：是关闭意思
 	void(*LaserControl)(uint8_t percent),
 	// 0:激光模式
@@ -86,9 +89,13 @@ void GrblInit(GRBL_METH*meth,
 	meth->LaserControl = LaserControl;
 	meth->ReadNoMissingData = ReadNoMissingData;
 	meth->SaveNoMissingData = SaveNoMissingData;
+	meth->DisableAirPumb = DisableAirPumb;
+	meth->EnableAirPumb = EnableAirPumb;
 
 	meth->gc.status_code = GC_Ok;
 
+	meth->DisableAirPumb();
+	
 	settings_init(meth);
 	gc_init(meth);
 }
